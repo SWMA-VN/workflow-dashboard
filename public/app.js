@@ -225,6 +225,218 @@ document.getElementById("real-btn").addEventListener("click", async () => {
   } catch (e) { out.textContent = `Error: ${e.message}`; }
 });
 
+// ======= OVERVIEW TAB =======
+async function loadOverview() {
+  await Promise.all([loadWip(), loadVelocity(), loadStale()]);
+}
+
+async function loadWip() {
+  try {
+    const data = await fetchJson("/api/wip");
+    document.getElementById("wip-team-load").textContent = data.team_wip;
+    document.getElementById("wip-team-cap").textContent = data.team_capacity;
+    document.getElementById("wip-team-pct").textContent = `${data.team_percent}%`;
+    document.getElementById("wip-unassigned").textContent = data.unassigned_open;
+
+    const list = document.getElementById("wip-list");
+    if (!data.devs.length) {
+      list.innerHTML = '<div class="loading">No team configured. Set TEAM_CONFIG env var.</div>';
+      return;
+    }
+    list.innerHTML = data.devs.map((d) => {
+      const pct = Math.min(d.percent, 100);
+      const stale = d.stale_count > 0 ? `<span class="wip-stale" title="${d.stale_count} stale">⏰ ${d.stale_count}</span>` : "";
+      const issues = d.issues.slice(0, 3).map((i) =>
+        `<a href="${i.url}" target="_blank" class="wip-issue" title="${escapeHtml(i.title)}">#${i.number}</a>`
+      ).join("");
+      const more = d.issues.length > 3 ? `<span class="wip-issue-more">+${d.issues.length - 3}</span>` : "";
+      return `
+        <div class="wip-dev wip-${d.status}">
+          <div class="wip-dev-head">
+            <span class="person-avatar">${avatar(d.login)}</span>
+            <span class="wip-dev-name">${escapeHtml(d.login)}</span>
+            <span class="wip-skills">${(d.skills || []).map((s) => `<code>${s}</code>`).join(" ")}</span>
+            ${stale}
+            <span class="wip-count">${d.open_count} / ${d.max_open}</span>
+          </div>
+          <div class="wip-bar"><div class="wip-bar-fill wip-bar-${d.status}" style="width: ${pct}%"></div></div>
+          <div class="wip-issues">${issues}${more}</div>
+        </div>`;
+    }).join("");
+  } catch (e) {
+    document.getElementById("wip-list").innerHTML = `<div class="loading">⚠️ ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function loadVelocity() {
+  try {
+    const data = await fetchJson("/api/performance");
+    const weeks = data.velocity_sparkline || [];
+    const max = Math.max(1, ...weeks.map((w) => w.merged));
+    const wrap = document.getElementById("velocity-bars");
+    wrap.innerHTML = `
+      <div class="vel-row">
+        ${weeks.map((w, i) => {
+          const labels = ["3 weeks ago", "2 weeks ago", "Last week", "This week"];
+          const h = (w.merged / max) * 100;
+          return `<div class="vel-col">
+            <div class="vel-val">${w.merged}</div>
+            <div class="vel-bar"><div class="vel-bar-fill" style="height:${h}%"></div></div>
+            <div class="vel-label">${labels[i]}</div>
+          </div>`;
+        }).join("")}
+      </div>`;
+  } catch (e) {
+    document.getElementById("velocity-bars").innerHTML = `<div class="loading">⚠️ ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function loadStale() {
+  try {
+    const data = await fetchJson("/api/performance");
+    const stale = data.stale_tickets || [];
+    const list = document.getElementById("stale-list");
+    if (!stale.length) {
+      list.innerHTML = '<div class="loading">✅ No stale tickets — everything moving!</div>';
+      return;
+    }
+    list.innerHTML = stale.map((s) => {
+      const assignees = s.assignees.length
+        ? s.assignees.map((a) => `<span class="assignee">${avatar(a)}</span>`).join("")
+        : '<span class="label-tag">unassigned</span>';
+      const sev = s.days_stale >= 7 ? "danger" : s.days_stale >= 5 ? "warning" : "muted";
+      return `
+        <a href="${s.url}" target="_blank" class="stale-row stale-${sev}">
+          <span class="stale-days">${s.days_stale}d</span>
+          <span class="stale-num">#${s.number}</span>
+          <span class="stale-title">${escapeHtml(s.title)}</span>
+          <span class="stale-assignees">${assignees}</span>
+        </a>`;
+    }).join("");
+  } catch (e) {
+    document.getElementById("stale-list").innerHTML = `<div class="loading">⚠️ ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+// ======= PERFORMANCE TAB =======
+async function loadPerformance() {
+  try {
+    const data = await fetchJson("/api/performance");
+
+    // Cycle time
+    const ct = data.cycle_time_days;
+    const cs = document.getElementById("cycle-stats");
+    if (ct.sample_size === 0) {
+      cs.innerHTML = '<div class="loading">No merged PRs yet. Cycle time will appear after first PR merges.</div>';
+    } else {
+      const healthClass = ct.health === "good" ? "success" : ct.health === "ok" ? "warning" : "danger";
+      cs.innerHTML = `
+        <div class="cycle-grid">
+          <div class="cycle-stat">
+            <div class="cycle-val">${ct.p50 ?? "—"}<span class="cycle-unit">d</span></div>
+            <div class="cycle-label">P50 (median)</div>
+          </div>
+          <div class="cycle-stat">
+            <div class="cycle-val">${ct.p90 ?? "—"}<span class="cycle-unit">d</span></div>
+            <div class="cycle-label">P90 (worst case)</div>
+          </div>
+          <div class="cycle-stat">
+            <div class="cycle-val">${ct.mean ?? "—"}<span class="cycle-unit">d</span></div>
+            <div class="cycle-label">Average</div>
+          </div>
+          <div class="cycle-stat">
+            <div class="cycle-val cycle-${healthClass}">${ct.health.toUpperCase()}</div>
+            <div class="cycle-label">Sample: ${ct.sample_size} PRs (last 60d)</div>
+          </div>
+        </div>`;
+    }
+
+    // Quality
+    const q = data.quality;
+    const qHealth = q.health === "good" ? "success" : q.health === "ok" ? "warning" : "danger";
+    document.getElementById("quality-stats").innerHTML = `
+      <div class="cycle-grid">
+        <div class="cycle-stat">
+          <div class="cycle-val">${q.bugs_30d}</div>
+          <div class="cycle-label">Bugs filed (30d)</div>
+        </div>
+        <div class="cycle-stat">
+          <div class="cycle-val">${q.merged_30d}</div>
+          <div class="cycle-label">PRs merged (30d)</div>
+        </div>
+        <div class="cycle-stat">
+          <div class="cycle-val cycle-${qHealth}">${q.bug_rate_percent}%</div>
+          <div class="cycle-label">Bug rate · ${q.health.toUpperCase()}</div>
+        </div>
+      </div>`;
+
+    // Throughput per dev
+    const tp = data.throughput_per_dev || [];
+    const tpWrap = document.getElementById("throughput-list");
+    if (!tp.length) {
+      tpWrap.innerHTML = '<div class="loading">No PRs merged in last 30 days yet.</div>';
+    } else {
+      const max = Math.max(1, ...tp.map((t) => t.prs_merged));
+      tpWrap.innerHTML = tp.map((t) => {
+        const w = (t.prs_merged / max) * 100;
+        return `
+          <div class="tp-row">
+            <span class="person-avatar">${avatar(t.login)}</span>
+            <span class="tp-name">${escapeHtml(t.login)}</span>
+            <div class="tp-bar-wrap"><div class="tp-bar" style="width:${w}%"></div></div>
+            <span class="tp-val">${t.prs_merged} PRs · ${t.avg_cycle_days}d avg</span>
+          </div>`;
+      }).join("");
+    }
+
+    // Heatmap
+    renderHeatmap(data.commit_heatmap);
+  } catch (e) {
+    document.getElementById("cycle-stats").innerHTML = `<div class="loading">⚠️ ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderHeatmap(data) {
+  const wrap = document.getElementById("heatmap-wrap");
+  const devs = Object.keys(data || {});
+  if (!devs.length) {
+    wrap.innerHTML = '<div class="loading">No commits in last 30 days yet.</div>';
+    return;
+  }
+  // Build last 30 days
+  const days = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 86400000);
+    days.push(d.toISOString().slice(0, 10));
+  }
+  const max = Math.max(1, ...devs.flatMap((d) => Object.values(data[d])));
+  const intensity = (n) => {
+    if (!n) return 0;
+    const r = n / max;
+    if (r > 0.66) return 4;
+    if (r > 0.33) return 3;
+    if (r > 0.1) return 2;
+    return 1;
+  };
+  let html = '<table class="heatmap"><thead><tr><th></th>';
+  for (const day of days) {
+    const dow = new Date(day).getDay();
+    const isWeekend = dow === 0 || dow === 6;
+    html += `<th class="${isWeekend ? "wknd" : ""}" title="${day}">${day.slice(8, 10)}</th>`;
+  }
+  html += "</tr></thead><tbody>";
+  for (const dev of devs) {
+    html += `<tr><td class="hm-name">${escapeHtml(dev)}</td>`;
+    for (const day of days) {
+      const n = data[dev][day] || 0;
+      html += `<td class="hm-cell hm-${intensity(n)}" title="${dev} on ${day}: ${n} commits"></td>`;
+    }
+    html += "</tr>";
+  }
+  html += "</tbody></table>";
+  wrap.innerHTML = html;
+}
+
 // Tabs
 document.querySelectorAll(".tab").forEach((t) =>
   t.addEventListener("click", () => {
@@ -232,6 +444,8 @@ document.querySelectorAll(".tab").forEach((t) =>
     document.querySelectorAll(".tab-panel").forEach((x) => x.classList.remove("active"));
     t.classList.add("active");
     document.getElementById(`tab-${t.dataset.tab}`).classList.add("active");
+    if (t.dataset.tab === "overview") loadOverview();
+    if (t.dataset.tab === "performance") loadPerformance();
     if (t.dataset.tab === "sheets") loadSheets();
     if (t.dataset.tab === "discord") loadDiscord();
     if (t.dataset.tab === "assign") loadAssign();
@@ -249,4 +463,5 @@ document.addEventListener("keydown", (e) => {
 
 // Init
 loadGithub();
-setInterval(loadGithub, REFRESH_MS);
+loadOverview();
+setInterval(() => { loadGithub(); loadOverview(); }, REFRESH_MS);

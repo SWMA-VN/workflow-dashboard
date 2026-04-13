@@ -69,16 +69,80 @@
 
 <!-- tabs -->
 <nav class="tabs">
-  <button class="tab active" data-tab="kanban">📋 Kanban</button>
+  <button class="tab active" data-tab="overview">📊 Overview</button>
+  <button class="tab" data-tab="kanban">📋 Kanban</button>
+  <button class="tab" data-tab="performance">📈 Performance</button>
   <button class="tab" data-tab="people">👥 People</button>
   <button class="tab" data-tab="sheets">📑 Sheets</button>
   <button class="tab" data-tab="discord">💬 Discord</button>
   <button class="tab" data-tab="assign">🤖 Auto-Assign</button>
 </nav>
 
+<!-- OVERVIEW (default) -->
+<section id="tab-overview" class="tab-panel active">
+  <div class="overview-grid">
+    <!-- WIP Section -->
+    <div class="card-block wip-block">
+      <h3>🎯 WIP per Person — current work in progress</h3>
+      <p class="hint">Green = room for more · Yellow = busy · Red = at limit (don't assign more)</p>
+      <div class="wip-summary">
+        <div class="wip-stat"><span class="wip-stat-val" id="wip-team-load">—</span><span class="wip-stat-label">Team WIP</span></div>
+        <div class="wip-stat"><span class="wip-stat-val" id="wip-team-cap">—</span><span class="wip-stat-label">Capacity</span></div>
+        <div class="wip-stat"><span class="wip-stat-val" id="wip-team-pct">—</span><span class="wip-stat-label">Utilization</span></div>
+        <div class="wip-stat"><span class="wip-stat-val" id="wip-unassigned">—</span><span class="wip-stat-label">Unassigned</span></div>
+      </div>
+      <div id="wip-list" class="wip-list"><div class="loading">Loading WIP…</div></div>
+    </div>
+
+    <!-- Velocity sparkline -->
+    <div class="card-block velocity-block">
+      <h3>📈 Velocity — PRs merged per week (last 4 weeks)</h3>
+      <div id="velocity-bars" class="velocity-bars"><div class="loading">Loading…</div></div>
+    </div>
+
+    <!-- Stale tickets -->
+    <div class="card-block stale-block">
+      <h3>⏰ Stale Tickets — no activity 3+ days</h3>
+      <div id="stale-list"><div class="loading">Checking…</div></div>
+    </div>
+  </div>
+</section>
+
 <!-- KANBAN -->
-<section id="tab-kanban" class="tab-panel active">
+<section id="tab-kanban" class="tab-panel">
   <div class="kanban" id="kanban"></div>
+</section>
+
+<!-- PERFORMANCE -->
+<section id="tab-performance" class="tab-panel">
+  <div class="perf-grid">
+    <!-- Cycle time -->
+    <div class="card-block">
+      <h3>⚡ Cycle Time — speed from PR open → merge</h3>
+      <p class="hint">Healthy: P50 ≤ 3 days, P90 ≤ 7 days. Higher = work piling up before merge.</p>
+      <div class="cycle-stats" id="cycle-stats"><div class="loading">Computing…</div></div>
+    </div>
+
+    <!-- Quality -->
+    <div class="card-block">
+      <h3>🐛 Quality — bug rate (last 30 days)</h3>
+      <p class="hint">Bugs filed in last 30d / PRs merged in last 30d. Good: under 10%. Warning: over 20%.</p>
+      <div class="quality-stats" id="quality-stats"><div class="loading">Computing…</div></div>
+    </div>
+
+    <!-- Throughput -->
+    <div class="card-block">
+      <h3>🚀 Throughput per dev — PRs merged in last 30 days</h3>
+      <div id="throughput-list"><div class="loading">Loading…</div></div>
+    </div>
+
+    <!-- Activity Heatmap -->
+    <div class="card-block">
+      <h3>🔥 Activity Heatmap — commits per dev per day (last 30 days)</h3>
+      <p class="hint">Spot inactive devs and weekend warriors (burnout risk).</p>
+      <div id="heatmap-wrap"><div class="loading">Loading…</div></div>
+    </div>
+  </div>
 </section>
 
 <!-- PEOPLE -->

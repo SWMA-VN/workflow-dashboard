@@ -105,17 +105,52 @@ export default async function handler(req, res) {
         ],
       });
     } else if (body.action === "closed" && body.pull_request.merged) {
+      // === Closed-loop: compute + announce cycle time ===
+      const created = new Date(body.pull_request.created_at).getTime();
+      const merged = new Date(body.pull_request.merged_at).getTime();
+      const cycleDays = Math.max(0, (merged - created) / 86400000);
+      const cycleStr =
+        cycleDays < 1 ? `${Math.round(cycleDays * 24)}h`
+        : `${cycleDays.toFixed(1)} days`;
+      const speed =
+        cycleDays < 1 ? "🚀 Lightning fast"
+        : cycleDays < 3 ? "✅ Healthy"
+        : cycleDays < 7 ? "⏱ Average"
+        : "🐢 Slow — investigate";
       await postDiscord({
         embeds: [
           makeEmbed({
             title: `✅ PR merged: #${body.pull_request.number}`,
             url: body.pull_request.html_url,
             description: `**${body.pull_request.title}**\nBy @${body.pull_request.user.login}`,
+            fields: [
+              { name: "Cycle time", value: cycleStr, inline: true },
+              { name: "Speed", value: speed, inline: true },
+              { name: "Lines", value: `+${body.pull_request.additions || 0} −${body.pull_request.deletions || 0}`, inline: true },
+            ],
             color: 0x27AE60,
           }),
         ],
       });
     }
+  }
+
+  // === Issues closed: simple celebration ===
+  if (event === "issues" && body.action === "closed") {
+    const created = new Date(body.issue.created_at).getTime();
+    const closed = new Date(body.issue.closed_at).getTime();
+    const liveDays = Math.max(0, (closed - created) / 86400000);
+    const assignees = (body.issue.assignees || []).map((a) => `@${a.login}`).join(", ") || "_unassigned_";
+    await postDiscord({
+      embeds: [
+        makeEmbed({
+          title: `🎉 Issue closed: #${body.issue.number}`,
+          url: body.issue.html_url,
+          description: `**${body.issue.title}**\nClosed by ${assignees} after ${liveDays.toFixed(1)} days`,
+          color: 0x16A085,
+        }),
+      ],
+    });
   }
 
   res.json({ ok: true, event, action: body.action });
