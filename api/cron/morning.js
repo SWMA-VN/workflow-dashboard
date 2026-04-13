@@ -1,8 +1,13 @@
-// Vercel Cron — runs 10:30 Hanoi (UTC+7) = 03:30 UTC, Mon-Fri.
-// Morning report: yesterday's wins + today's plan, from GitHub + Google Sheet.
+// Vercel Cron — runs 10:15 Hanoi (UTC+7) = 03:15 UTC, Mon-Fri.
+// Morning briefing: per-member yesterday recap (sheet morning section)
+//   + today's plan + GitHub WIP context.
+// Yesterday = last working day (Mon's yesterday = Friday).
+// Manual override: ?date=M/D/YYYY
 
 import { getMetrics, listIssues, scope } from "../../lib/github.js";
-import { fetchSheet, rowsForDate, hanoiToday, hanoiYesterday } from "../../lib/sheets.js";
+import {
+  getDayActivity, hanoiToday, lastWorkdayBefore, parseSheetDate, formatSheetDate,
+} from "../../lib/sheets.js";
 import { aiSummarize } from "../../lib/ai.js";
 import { postDiscord, makeEmbed } from "../../lib/discord.js";
 import { sendEmail } from "../../lib/email.js";
@@ -14,135 +19,160 @@ export default async function handler(req, res) {
 
   try {
     const projectName = process.env.PROJECT_NAME || "Project";
-    const today = hanoiToday();
-    const yesterday = hanoiYesterday();
-    const todayStr = today.toLocaleDateString("en-CA");
-    const yesterdayStr = yesterday.toLocaleDateString("en-CA");
     const sc = scope();
 
-    // GitHub data (1-day window for "yesterday")
-    const m = await getMetrics({ days: 1 });
+    let today = req.query?.date ? parseSheetDate(req.query.date) : hanoiToday();
+    if (!today) today = hanoiToday();
+    const yesterday = lastWorkdayBefore(today);
+    const todayStr = formatSheetDate(today);
+    const yesterdayStr = formatSheetDate(yesterday);
 
-    // Open issues currently In Progress (today's WIP)
+    // Sheet — yesterday's afternoon (what they finished) + today's morning (what they plan)
+    const { day: yDay, error: yErr } = await getDayActivity(yesterday);
+    const { day: tDay, error: tErr } = await getDayActivity(today);
+    const sheetError = yErr || tErr;
+
+    const yAft = (yDay && yDay.afternoon) || {};
+    const tMorn = (tDay && tDay.morning) || {};
+    const allMembers = Array.from(new Set([
+      ...Object.keys(yAft), ...Object.keys(tMorn),
+    ]));
+
+    // GitHub: 1-day window
+    const m = await getMetrics({ days: 1 });
     const openIssues = await listIssues({ state: "open" });
     const realIssues = openIssues.filter((i) => !i.pull_request);
-    const inProgress = realIssues.filter((i) => (i.assignees || []).length > 0);
-    const newOpen = realIssues.filter((i) => {
-      const created = new Date(i.created_at).getTime();
-      return created > Date.now() - 1.5 * 86400000;
+    const inProgressGh = realIssues.filter((i) => (i.assignees || []).length > 0);
+
+    // Build per-member section
+    const memberRows = allMembers.map((mb) => {
+      const yDone = (yAft[mb] || {}).done || "—";
+      const yWip = (yAft[mb] || {}).inProgress || "—";
+      const tToday = (tMorn[mb] || {}).today || "—";
+      const tYesterday = (tMorn[mb] || {}).yesterday || "—";
+      return { member: mb, yesterdayDone: yDone, yesterdayWip: yWip, todayPlan: tToday, todayYesterdayRecap: tYesterday };
     });
 
-    // Google Sheet — yesterday's done + today's plan
-    const { rows, error: sheetError } = await fetchSheet();
-    let yesterdaySheetRows = [];
-    let todaySheetRows = [];
-    if (rows && rows.length) {
-      yesterdaySheetRows = rowsForDate(rows, yesterday);
-      todaySheetRows = rowsForDate(rows, today);
-    }
+    const yesterdayDoneText = memberRows
+      .filter((l) => l.yesterdayDone && l.yesterdayDone !== "—")
+      .map((l) => `**${l.member}** ✅\n${truncate(l.yesterdayDone, 280)}`)
+      .join("\n\n") || "_no DONE entries in sheet for ${yesterdayStr}_";
 
-    // Build AI summary
-    const prompt = `You are a PM assistant writing the MORNING standup briefing for ${projectName}.
+    const todayPlanText = memberRows
+      .filter((l) => l.todayPlan && l.todayPlan !== "—")
+      .map((l) => `**${l.member}** ➡️\n${truncate(l.todayPlan, 280)}`)
+      .join("\n\n") || `_no team plan in sheet for ${todayStr} yet_`;
 
-It's ${todayStr} (Hanoi time).
+    const carryOverText = memberRows
+      .filter((l) => l.yesterdayWip && l.yesterdayWip !== "—")
+      .map((l) => `**${l.member}** 🔄\n${truncate(l.yesterdayWip, 240)}`)
+      .join("\n\n");
 
-Yesterday's GitHub activity:
-- Issues closed: ${m.issues_closed.length}
-- PRs merged: ${m.prs_merged.length}
-- Commits: ${m.commits.length}
-- Top closed: ${m.issues_closed.slice(0, 5).map((i) => i.title).join("; ")}
-- Top merged PRs: ${m.prs_merged.slice(0, 5).map((p) => p.title).join("; ")}
+    // AI brief
+    const prompt = `You are a PM assistant writing the MORNING briefing for ${projectName}.
+Today is ${todayStr} (Hanoi). "Yesterday" workday = ${yesterdayStr}.
 
-Today's GitHub WIP:
-- In Progress: ${inProgress.length} issues
-- New (last 36h): ${newOpen.length} issues
-- Blocked: ${m.blocked.length}
+WHAT THE TEAM SAID YESTERDAY (afternoon section):
+DONE:
+${memberRows.filter((l) => l.yesterdayDone && l.yesterdayDone !== "—").map((l) => `${l.member}: ${l.yesterdayDone}`).join("\n") || "(none logged)"}
 
-Yesterday's standup log entries:
-${yesterdaySheetRows.map((r) => `- ${r.Member}: did "${r["What you have done today"] || ""}" — plans: "${r["What will you do tormorrow"] || r["What will you do tomorrow"] || ""}" — issues: "${r["Any Isues?"] || r["Any Issues?"] || ""}"`).join("\n") || "(no entries yet for yesterday)"}
+CARRYING OVER (in-progress yesterday → still going):
+${memberRows.filter((l) => l.yesterdayWip && l.yesterdayWip !== "—").map((l) => `${l.member}: ${l.yesterdayWip}`).join("\n") || "(none)"}
 
-Today's standup log entries:
-${todaySheetRows.map((r) => `- ${r.Member}: planning "${r["What you have done today"] || r["What will you do tormorrow"] || ""}"`).join("\n") || "(team has not posted today's plan yet)"}
+WHAT THE TEAM PLANS TODAY (morning section):
+${memberRows.filter((l) => l.todayPlan && l.todayPlan !== "—").map((l) => `${l.member}: ${l.todayPlan}`).join("\n") || "(no team plan posted yet)"}
+
+GITHUB CONTEXT:
+- Yesterday closed: ${m.issues_closed.length}, merged: ${m.prs_merged.length}, commits: ${m.commits.length}
+- Currently in-progress: ${inProgressGh.length}, blockers: ${m.blocked.length}
 
 Write a 5-7 sentence morning briefing covering:
-1. What we shipped yesterday
-2. Today's focus (top 3 things)
-3. Any risks or blockers visible
-4. One thing to celebrate or watch
-Be specific, mention names if visible. Be motivating but realistic.`;
+1. What we shipped yesterday (be specific, mention names + features)
+2. Today's focus (top 3 priorities visible)
+3. Any risks or carryovers to watch
+4. One motivating note
+Be concrete and direct.`;
 
     const aiSummary = await aiSummarize(prompt, { maxTokens: 1500 });
 
-    // === Discord post ===
-    const sheetSection = yesterdaySheetRows.length || todaySheetRows.length
-      ? "📋 Sheet log: " + (yesterdaySheetRows.length + todaySheetRows.length) + " entries"
-      : "📋 Sheet log: no entries today/yesterday";
-
-    const inProgressList = inProgress.slice(0, 8)
-      .map((i) => `• [#${i.number}](${i.html_url}) ${i.title.slice(0, 60)} — ${(i.assignees || []).map((a) => `@${a.login}`).join(", ")}`)
-      .join("\n") || "_nothing in progress_";
-
-    const yesterdayList = m.prs_merged.slice(0, 5).concat(m.issues_closed.slice(0, 5))
-      .map((x) => `• [#${x.number}](${x.html_url}) ${(x.title || "").slice(0, 70)}`)
-      .join("\n") || "_no merges/closes yesterday_";
-
-    const sheetTodayList = todaySheetRows.slice(0, 8)
-      .map((r) => `• **${r.Member}**: ${(r["What will you do tormorrow"] || r["What will you do tomorrow"] || r["What you have done today"] || "—").slice(0, 90)}`)
-      .join("\n") || "_no sheet entries for today yet_";
+    // Discord
+    const fields = [
+      { name: `✅ Yesterday (${yesterdayStr}) — DONE per member`, value: truncate(yesterdayDoneText, 1024), inline: false },
+    ];
+    if (carryOverText) fields.push({ name: `🔄 Carrying over from yesterday`, value: truncate(carryOverText, 1024), inline: false });
+    fields.push({ name: `➡️ Today (${todayStr}) — PLAN per member`, value: truncate(todayPlanText, 1024), inline: false });
+    fields.push({
+      name: "🐙 GitHub stats",
+      value: `Yesterday → closed ${m.issues_closed.length}, merged ${m.prs_merged.length}, commits ${m.commits.length}\nNow → in-progress ${inProgressGh.length}, blockers ${m.blocked.length}`,
+      inline: false,
+    });
 
     await postDiscord({
-      content: `🌅 **Good morning! Here's the briefing for ${projectName}** — ${todayStr} (Hanoi)`,
+      content: `🌅 **Morning briefing — ${projectName}** — ${todayStr} (Hanoi)`,
       embeds: [
         makeEmbed({
           title: `☕ Morning Briefing — ${todayStr}`,
-          description: aiSummary.slice(0, 1800),
+          description: truncate(aiSummary, 1800),
           color: 0xF59E0B,
-          fields: [
-            { name: "✅ Yesterday's GitHub wins", value: yesterdayList.slice(0, 1024), inline: false },
-            { name: "🔄 In Progress today", value: inProgressList.slice(0, 1024), inline: false },
-            { name: "📋 Today's plan (from sheet)", value: sheetTodayList.slice(0, 1024), inline: false },
-            { name: "📊 Stats", value: `Closed: ${m.issues_closed.length} · Merged: ${m.prs_merged.length} · WIP: ${inProgress.length} · Blockers: ${m.blocked.length}`, inline: false },
-          ],
+          fields,
         }),
       ],
     });
 
-    // === Email ===
-    const sheetTodayHtml = todaySheetRows.length
-      ? `<ul>${todaySheetRows.map((r) => `<li><b>${r.Member}</b>: ${r["What will you do tormorrow"] || r["What will you do tomorrow"] || r["What you have done today"] || "—"}</li>`).join("")}</ul>`
-      : "<p><em>No sheet entries for today yet.</em></p>";
+    // Email
+    const yDoneHtml = memberRows.filter((l) => l.yesterdayDone && l.yesterdayDone !== "—").length
+      ? `<ul>${memberRows.filter((l) => l.yesterdayDone && l.yesterdayDone !== "—").map((l) => `<li><b>${esc(l.member)}</b><br><pre style="font-family:inherit;white-space:pre-wrap;margin:4px 0">${esc(l.yesterdayDone)}</pre></li>`).join("")}</ul>`
+      : `<p><em>No DONE entries in sheet for ${yesterdayStr}.</em></p>`;
+    const tPlanHtml = memberRows.filter((l) => l.todayPlan && l.todayPlan !== "—").length
+      ? `<ul>${memberRows.filter((l) => l.todayPlan && l.todayPlan !== "—").map((l) => `<li><b>${esc(l.member)}</b><br><pre style="font-family:inherit;white-space:pre-wrap;margin:4px 0">${esc(l.todayPlan)}</pre></li>`).join("")}</ul>`
+      : `<p><em>No team plans for ${todayStr} yet.</em></p>`;
 
     const html = `
-      <html><body style="font-family: Arial, sans-serif; max-width: 720px;">
-      <h2 style="color:#F59E0B">☕ Morning Briefing — ${projectName}</h2>
-      <p><b>${todayStr} (Hanoi)</b> · scope: ${sc.label}</p>
+      <html><body style="font-family: Arial, sans-serif; max-width: 760px;">
+      <h2 style="color:#F59E0B">☕ Morning Briefing — ${esc(projectName)}</h2>
+      <p><b>${todayStr} 10:15 (Hanoi)</b> · yesterday workday: ${yesterdayStr} · scope: ${esc(sc.label)}</p>
       <h3>AI Summary</h3>
-      <p style="background:#fef3c7;padding:12px;border-left:4px solid #F59E0B">${aiSummary}</p>
-      <h3>📋 Today's plan (from team sheet)</h3>
-      ${sheetTodayHtml}
-      ${sheetError ? `<p style="color:#888"><em>Sheet error: ${sheetError}</em></p>` : ""}
-      <h3>📊 GitHub stats</h3>
+      <p style="background:#fef3c7;padding:12px;border-left:4px solid #F59E0B;white-space:pre-wrap">${esc(aiSummary)}</p>
+      <h3>✅ Yesterday — DONE</h3>
+      ${yDoneHtml}
+      <h3>➡️ Today — PLAN</h3>
+      ${tPlanHtml}
+      ${sheetError ? `<p style="color:#888"><em>Sheet error: ${esc(sheetError)}</em></p>` : ""}
+      <h3>🐙 GitHub</h3>
       <ul>
-        <li>Issues closed yesterday: <b>${m.issues_closed.length}</b></li>
-        <li>PRs merged yesterday: <b>${m.prs_merged.length}</b></li>
-        <li>Commits yesterday: <b>${m.commits.length}</b></li>
-        <li>Currently in progress: <b>${inProgress.length}</b></li>
+        <li>Yesterday closed: <b>${m.issues_closed.length}</b></li>
+        <li>Yesterday merged: <b>${m.prs_merged.length}</b></li>
+        <li>Yesterday commits: <b>${m.commits.length}</b></li>
+        <li>Now in-progress: <b>${inProgressGh.length}</b></li>
         <li>Blockers: <b style="color:${m.blocked.length ? "red" : "green"}">${m.blocked.length}</b></li>
       </ul>
-      <hr><p style="color:#888;font-size:12px">Auto-generated 10:30 Hanoi · <a href="https://ethanworkflowview.vercel.app">Dashboard</a></p>
+      <hr><p style="color:#888;font-size:12px">Auto-generated · <a href="https://ethanworkflowview.vercel.app">Dashboard</a></p>
       </body></html>`;
-    await sendEmail({ subject: `☕ Morning Briefing — ${projectName} — ${todayStr}`, html });
+    await sendEmail({ subject: `☕ Morning — ${projectName} — ${todayStr}`, html });
 
     res.json({
       ok: true,
-      sheet_rows_today: todaySheetRows.length,
-      sheet_rows_yesterday: yesterdaySheetRows.length,
+      today: todayStr,
+      yesterday_workday: yesterdayStr,
+      members_logged: allMembers.length,
+      yesterday_done_count: memberRows.filter((l) => l.yesterdayDone && l.yesterdayDone !== "—").length,
+      today_plan_count: memberRows.filter((l) => l.todayPlan && l.todayPlan !== "—").length,
+      carryover_count: memberRows.filter((l) => l.yesterdayWip && l.yesterdayWip !== "—").length,
       sheet_error: sheetError || null,
-      github: { closed: m.issues_closed.length, merged: m.prs_merged.length, in_progress: inProgress.length, blocked: m.blocked.length },
+      github: { closed: m.issues_closed.length, merged: m.prs_merged.length, commits: m.commits.length, in_progress: inProgressGh.length, blockers: m.blocked.length },
       summary_excerpt: aiSummary.slice(0, 200),
     });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });
   }
+}
+
+function truncate(s, n) {
+  if (!s) return "";
+  if (s.length <= n) return s;
+  return s.slice(0, n - 1) + "…";
+}
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }

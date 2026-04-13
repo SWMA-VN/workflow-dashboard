@@ -1,8 +1,9 @@
-// Vercel Cron — runs 16:30 Hanoi (UTC+7) = 09:30 UTC, Mon-Fri.
-// End-of-day report: what's done today + what's still in progress.
+// Vercel Cron — runs 16:15 Hanoi (UTC+7) = 09:15 UTC, Mon-Fri.
+// EOD: per-member done + in-progress from the team standup sheet + GitHub stats.
+// Manual trigger override: ?date=M/D/YYYY (e.g. ?date=4/10/2026 to rerun yesterday).
 
 import { getMetrics, listIssues, scope } from "../../lib/github.js";
-import { fetchSheet, rowsForDate, hanoiToday } from "../../lib/sheets.js";
+import { getDayActivity, hanoiToday, parseSheetDate, formatSheetDate } from "../../lib/sheets.js";
 import { aiSummarize } from "../../lib/ai.js";
 import { postDiscord, makeEmbed } from "../../lib/discord.js";
 import { sendEmail } from "../../lib/email.js";
@@ -14,164 +15,184 @@ export default async function handler(req, res) {
 
   try {
     const projectName = process.env.PROJECT_NAME || "Project";
-    const today = hanoiToday();
-    const todayStr = today.toLocaleDateString("en-CA");
     const sc = scope();
 
-    // GitHub: today's activity (last 12h to capture today's day)
+    // Allow ?date= to rerun for a past date
+    let target = req.query?.date ? parseSheetDate(req.query.date) : hanoiToday();
+    if (!target) target = hanoiToday();
+    const dateStr = formatSheetDate(target);
+    const isoStr = target.toISOString().slice(0, 10);
+
+    // === Sheet: today's afternoon section ===
+    const { day, error: sheetError } = await getDayActivity(target);
+    const afternoon = (day && day.afternoon) || {};
+    const morning = (day && day.morning) || {};
+    const allMembers = Array.from(new Set([...Object.keys(afternoon), ...Object.keys(morning)]));
+
+    // === GitHub: today's activity ===
     const m = await getMetrics({ days: 1 });
     const openIssues = await listIssues({ state: "open" });
     const realIssues = openIssues.filter((i) => !i.pull_request);
-    const inProgress = realIssues.filter((i) => (i.assignees || []).length > 0);
-    const stale = realIssues.filter((i) =>
-      (Date.now() - new Date(i.updated_at).getTime()) > 3 * 86400000
-    ).map((i) => ({
-      number: i.number,
-      title: i.title,
-      url: i.html_url,
-      assignees: (i.assignees || []).map((a) => a.login),
-      days: Math.floor((Date.now() - new Date(i.updated_at).getTime()) / 86400000),
-    }));
+    const inProgressGh = realIssues.filter((i) => (i.assignees || []).length > 0);
+    const stale = realIssues
+      .filter((i) => (Date.now() - new Date(i.updated_at).getTime()) > 3 * 86400000)
+      .map((i) => ({
+        number: i.number, title: i.title, url: i.html_url,
+        assignees: (i.assignees || []).map((a) => a.login),
+        days: Math.floor((Date.now() - new Date(i.updated_at).getTime()) / 86400000),
+      }));
 
-    // Sheet: today's entries
-    const { rows, error: sheetError } = await fetchSheet();
-    let todaySheetRows = [];
-    if (rows && rows.length) todaySheetRows = rowsForDate(rows, today);
-
-    const sheetDone = todaySheetRows.filter((r) => {
-      const prog = parseInt((r["Progress (%)"] || "").replace("%", ""));
-      return !isNaN(prog) && prog >= 100;
+    // Build per-member lines for sheet section
+    const memberLines = allMembers.map((mb) => {
+      const aft = afternoon[mb] || {};
+      const morn = morning[mb] || {};
+      const done = aft.done || "—";
+      const inProg = aft.inProgress || "—";
+      const issues = aft.issues || morn.issues || "";
+      return { member: mb, done, inProgress: inProg, issues };
     });
-    const sheetInProgress = todaySheetRows.filter((r) => {
-      const prog = parseInt((r["Progress (%)"] || "").replace("%", ""));
-      return isNaN(prog) || prog < 100;
-    });
-    const sheetIssues = todaySheetRows.filter((r) => (r["Any Isues?"] || r["Any Issues?"] || "").trim());
 
-    // AI summary
-    const prompt = `You are a PM assistant writing the END-OF-DAY check-in for ${projectName}.
+    const doneCount = memberLines.filter((l) => l.done && l.done !== "—").length;
+    const wipCount = memberLines.filter((l) => l.inProgress && l.inProgress !== "—").length;
+    const issuesCount = memberLines.filter((l) => l.issues).length;
 
-It's ${todayStr} 16:30 Hanoi time. Day is wrapping up.
+    // ===== Build Discord post =====
+    const sheetDoneText = memberLines
+      .filter((l) => l.done && l.done !== "—")
+      .map((l) => `**${l.member}** ✅\n${truncate(l.done, 280)}`)
+      .join("\n\n") || "_no team done entries in sheet for this day_";
 
-Today's GitHub activity:
+    const sheetWipText = memberLines
+      .filter((l) => l.inProgress && l.inProgress !== "—")
+      .map((l) => `**${l.member}** 🔄\n${truncate(l.inProgress, 280)}`)
+      .join("\n\n") || "_nothing in-progress in sheet_";
+
+    const issuesText = memberLines
+      .filter((l) => l.issues)
+      .map((l) => `🚨 **${l.member}**: ${truncate(l.issues, 200)}`)
+      .join("\n");
+
+    const ghDoneList = m.prs_merged.slice(0, 5).concat(m.issues_closed.slice(0, 5))
+      .map((x) => `• [#${x.number}](${x.html_url}) ${truncate(x.title || "", 70)}`)
+      .join("\n") || "_nothing closed/merged on this date in GitHub_";
+
+    const ghWipList = inProgressGh.slice(0, 8)
+      .map((i) => `• [#${i.number}](${i.html_url}) ${truncate(i.title, 60)} — ${(i.assignees || []).map((a) => `@${a.login}`).join(", ")}`)
+      .join("\n") || "_no GitHub WIP_";
+
+    const staleList = stale.slice(0, 5)
+      .map((s) => `⏰ [#${s.number}](${s.url}) ${truncate(s.title, 55)} — ${s.assignees.map((a) => `@${a}`).join(", ") || "_unassigned_"} (${s.days}d)`)
+      .join("\n");
+
+    // === AI summary ===
+    const prompt = `You are a PM assistant writing the END-OF-DAY check-in for ${projectName} on ${dateStr} (Hanoi).
+
+TEAM SHEET — ${allMembers.length} members logged today:
+
+DONE today (per member):
+${memberLines.filter((l) => l.done && l.done !== "—").map((l) => `${l.member}: ${l.done}`).join("\n") || "(no team done entries)"}
+
+IN PROGRESS (rolling tomorrow):
+${memberLines.filter((l) => l.inProgress && l.inProgress !== "—").map((l) => `${l.member}: ${l.inProgress}`).join("\n") || "(none)"}
+
+ISSUES RAISED:
+${memberLines.filter((l) => l.issues).map((l) => `${l.member}: ${l.issues}`).join("\n") || "(none)"}
+
+GITHUB on this date:
 - Issues closed: ${m.issues_closed.length}
 - PRs merged: ${m.prs_merged.length}
 - Commits: ${m.commits.length}
-- Top closed: ${m.issues_closed.slice(0, 5).map((i) => i.title).join("; ")}
-- Top merged PRs: ${m.prs_merged.slice(0, 5).map((p) => p.title).join("; ")}
+- Currently in progress: ${inProgressGh.length}
+- Stale (3+ days): ${stale.length}
+- Blockers: ${m.blocked.length}
 
-Currently in progress: ${inProgress.length} issues
-Stale (3+ days no activity): ${stale.length}
-Blockers: ${m.blocked.length}
-
-Sheet log entries posted today: ${todaySheetRows.length}
-- Marked done (100%): ${sheetDone.length}
-- Still in progress: ${sheetInProgress.length}
-- Reporting issues: ${sheetIssues.length}
-
-Done today (sheet):
-${sheetDone.map((r) => `- ${r.Member}: ${r["What you have done today"]}`).join("\n") || "(nothing marked 100% in sheet)"}
-
-Still in progress (sheet):
-${sheetInProgress.map((r) => `- ${r.Member}: ${r["What you have done today"]} — plans tomorrow: ${r["What will you do tormorrow"] || r["What will you do tomorrow"] || ""}`).join("\n") || "(nothing logged in sheet)"}
-
-Issues raised:
-${sheetIssues.map((r) => `- ${r.Member}: ${r["Any Isues?"] || r["Any Issues?"]}`).join("\n") || "(none)"}
-
-Write a 5-7 sentence END-OF-DAY summary covering:
-1. What got shipped today (be concrete)
-2. What's still cooking (rolling to tomorrow)
-3. Any blockers/risks to flag for tomorrow
-4. One micro-celebration if something good happened
-Be specific, mention names. Honest tone — if today was light, say so.`;
+Write 5-7 sentences:
+1. What got shipped today (be SPECIFIC, mention member names + features)
+2. What's rolling to tomorrow (key WIP)
+3. Any risks or blockers to flag
+4. One micro-celebration
+Honest tone — if light, say so.`;
 
     const aiSummary = await aiSummarize(prompt, { maxTokens: 1500 });
 
-    // Discord post
-    const doneList = m.prs_merged.slice(0, 6).concat(m.issues_closed.slice(0, 6))
-      .map((x) => `• [#${x.number}](${x.html_url}) ${(x.title || "").slice(0, 70)}`)
-      .join("\n") || "_nothing closed/merged today_";
-
-    const wipList = inProgress.slice(0, 8)
-      .map((i) => `• [#${i.number}](${i.html_url}) ${i.title.slice(0, 60)} — ${(i.assignees || []).map((a) => `@${a.login}`).join(", ")}`)
-      .join("\n") || "_no WIP_";
-
-    const staleList = stale.slice(0, 5)
-      .map((s) => `⏰ [#${s.number}](${s.url}) ${s.title.slice(0, 55)} — ${s.assignees.map((a) => `@${a}`).join(", ") || "_unassigned_"} (${s.days}d)`)
-      .join("\n") || "_no stale items_";
-
-    const sheetDoneList = sheetDone.slice(0, 8)
-      .map((r) => `✅ **${r.Member}**: ${(r["What you have done today"] || "").slice(0, 90)}`)
-      .join("\n") || "_no 100% items in sheet_";
-
-    const issuesList = sheetIssues.slice(0, 5)
-      .map((r) => `🚨 **${r.Member}**: ${(r["Any Isues?"] || r["Any Issues?"] || "").slice(0, 90)}`)
-      .join("\n");
-
     const fields = [
-      { name: "✅ Done today (GitHub)", value: doneList.slice(0, 1024), inline: false },
-      { name: "📋 Done today (sheet, 100%)", value: sheetDoneList.slice(0, 1024), inline: false },
-      { name: "🔄 Still in progress (rolling tomorrow)", value: wipList.slice(0, 1024), inline: false },
+      { name: `✅ Sheet — DONE today (${doneCount} members)`, value: truncate(sheetDoneText, 1024), inline: false },
+      { name: `🔄 Sheet — IN PROGRESS (rolling tomorrow, ${wipCount} members)`, value: truncate(sheetWipText, 1024), inline: false },
     ];
-    if (stale.length) fields.push({ name: "⏰ Stale items needing attention", value: staleList.slice(0, 1024), inline: false });
-    if (issuesList) fields.push({ name: "🚨 Issues raised by team", value: issuesList.slice(0, 1024), inline: false });
+    if (issuesText) fields.push({ name: `🚨 Issues raised (${issuesCount})`, value: truncate(issuesText, 1024), inline: false });
+    fields.push({ name: "🐙 GitHub — closed/merged on this date", value: truncate(ghDoneList, 1024), inline: false });
+    fields.push({ name: `🐙 GitHub — currently in-progress (${inProgressGh.length})`, value: truncate(ghWipList, 1024), inline: false });
+    if (staleList) fields.push({ name: `⏰ Stale items (${stale.length})`, value: truncate(staleList, 1024), inline: false });
 
     await postDiscord({
-      content: `🌇 **End of day check-in for ${projectName}** — ${todayStr} (Hanoi)`,
+      content: `🌇 **End of day check-in — ${projectName}** — ${dateStr} (Hanoi)`,
       embeds: [
         makeEmbed({
-          title: `🌇 EOD Report — ${todayStr}`,
-          description: aiSummary.slice(0, 1800),
-          color: m.blocked.length || stale.length >= 3 ? 0xE74C3C : 0x16A085,
+          title: `🌇 EOD Report — ${dateStr}`,
+          description: truncate(aiSummary, 1800),
+          color: m.blocked.length || stale.length >= 3 || issuesCount ? 0xE74C3C : 0x16A085,
           fields,
         }),
       ],
     });
 
-    // Email
-    const sheetDoneHtml = sheetDone.length
-      ? `<ul>${sheetDone.map((r) => `<li><b>${r.Member}</b>: ${r["What you have done today"]}</li>`).join("")}</ul>`
-      : "<p><em>No items marked 100% in sheet today.</em></p>";
+    // ===== Email =====
+    const sheetDoneHtml = memberLines.filter((l) => l.done && l.done !== "—").length
+      ? `<ul>${memberLines.filter((l) => l.done && l.done !== "—").map((l) => `<li><b>${esc(l.member)}</b><br><pre style="font-family:inherit;white-space:pre-wrap;margin:4px 0">${esc(l.done)}</pre></li>`).join("")}</ul>`
+      : "<p><em>No DONE entries from team in sheet for this date.</em></p>";
 
-    const sheetWipHtml = sheetInProgress.length
-      ? `<ul>${sheetInProgress.map((r) => `<li><b>${r.Member}</b>: ${r["What you have done today"]} <em>→ tomorrow: ${r["What will you do tormorrow"] || r["What will you do tomorrow"] || "—"}</em></li>`).join("")}</ul>`
-      : "<p><em>No WIP items in sheet.</em></p>";
+    const sheetWipHtml = memberLines.filter((l) => l.inProgress && l.inProgress !== "—").length
+      ? `<ul>${memberLines.filter((l) => l.inProgress && l.inProgress !== "—").map((l) => `<li><b>${esc(l.member)}</b><br><pre style="font-family:inherit;white-space:pre-wrap;margin:4px 0">${esc(l.inProgress)}</pre></li>`).join("")}</ul>`
+      : "<p><em>No IN-PROGRESS entries from team for this date.</em></p>";
+
+    const issuesHtml = memberLines.filter((l) => l.issues).length
+      ? `<ul>${memberLines.filter((l) => l.issues).map((l) => `<li><b>${esc(l.member)}</b>: ${esc(l.issues)}</li>`).join("")}</ul>`
+      : "";
 
     const html = `
-      <html><body style="font-family: Arial, sans-serif; max-width: 720px;">
-      <h2 style="color:#16A085">🌇 EOD Check-in — ${projectName}</h2>
-      <p><b>${todayStr} 16:30 (Hanoi)</b> · scope: ${sc.label}</p>
+      <html><body style="font-family: Arial, sans-serif; max-width: 760px;">
+      <h2 style="color:#16A085">🌇 EOD Check-in — ${esc(projectName)}</h2>
+      <p><b>${dateStr} 16:15 (Hanoi)</b> · scope: ${esc(sc.label)}</p>
       <h3>AI Summary</h3>
-      <p style="background:#d1fae5;padding:12px;border-left:4px solid #16A085">${aiSummary}</p>
-      <h3>✅ Done today (sheet, 100%)</h3>
+      <p style="background:#d1fae5;padding:12px;border-left:4px solid #16A085;white-space:pre-wrap">${esc(aiSummary)}</p>
+
+      <h3>✅ Done today (per team member)</h3>
       ${sheetDoneHtml}
-      <h3>🔄 Still in progress → tomorrow (sheet)</h3>
+
+      <h3>🔄 In Progress → tomorrow</h3>
       ${sheetWipHtml}
-      ${sheetError ? `<p style="color:#888"><em>Sheet error: ${sheetError}</em></p>` : ""}
-      <h3>📊 GitHub today</h3>
+
+      ${issuesHtml ? `<h3>🚨 Issues raised</h3>${issuesHtml}` : ""}
+
+      ${sheetError ? `<p style="color:#888"><em>Sheet error: ${esc(sheetError)}</em></p>` : ""}
+
+      <h3>🐙 GitHub on ${isoStr}</h3>
       <table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse">
-        <tr><td>Closed</td><td><b>${m.issues_closed.length}</b></td></tr>
+        <tr><td>Issues closed</td><td><b>${m.issues_closed.length}</b></td></tr>
         <tr><td>PRs merged</td><td><b>${m.prs_merged.length}</b></td></tr>
         <tr><td>Commits</td><td><b>${m.commits.length}</b></td></tr>
-        <tr><td>Still in progress</td><td><b>${inProgress.length}</b></td></tr>
+        <tr><td>Currently in progress</td><td><b>${inProgressGh.length}</b></td></tr>
         <tr><td>Stale (3+ days)</td><td><b>${stale.length}</b></td></tr>
         <tr><td>Blockers</td><td><b style="color:${m.blocked.length ? "red" : "green"}">${m.blocked.length}</b></td></tr>
       </table>
-      <hr><p style="color:#888;font-size:12px">Auto-generated 16:30 Hanoi · <a href="https://ethanworkflowview.vercel.app">Dashboard</a></p>
+
+      <hr><p style="color:#888;font-size:12px">Auto-generated · <a href="https://ethanworkflowview.vercel.app">Dashboard</a></p>
       </body></html>`;
-    await sendEmail({ subject: `🌇 EOD Report — ${projectName} — ${todayStr}`, html });
+    await sendEmail({ subject: `🌇 EOD — ${projectName} — ${dateStr}`, html });
 
     res.json({
       ok: true,
-      sheet_today: todaySheetRows.length,
-      sheet_done: sheetDone.length,
-      sheet_wip: sheetInProgress.length,
-      sheet_issues: sheetIssues.length,
+      target_date: dateStr,
+      members_in_sheet: allMembers.length,
+      sheet_done: doneCount,
+      sheet_wip: wipCount,
+      sheet_issues: issuesCount,
       sheet_error: sheetError || null,
       github: {
         closed: m.issues_closed.length,
         merged: m.prs_merged.length,
-        in_progress: inProgress.length,
+        commits: m.commits.length,
+        in_progress: inProgressGh.length,
         stale: stale.length,
         blocked: m.blocked.length,
       },
@@ -181,4 +202,13 @@ Be specific, mention names. Honest tone — if today was light, say so.`;
     console.error(e);
     res.status(500).json({ error: e.message });
   }
+}
+
+function truncate(s, n) {
+  if (!s) return "";
+  if (s.length <= n) return s;
+  return s.slice(0, n - 1) + "…";
+}
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
