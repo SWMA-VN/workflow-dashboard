@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PM Command Center — Live</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='14' font-size='14'%3E📊%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+
+<header>
+  <div class="title">
+    <span class="logo">📊</span>
+    <h1>PM Command Center</h1>
+    <span class="repo-badge" id="repo-name">connecting…</span>
+    <span class="badge live"><span class="dot"></span> LIVE</span>
+  </div>
+  <div class="header-actions">
+    <span class="last-updated" id="last-updated">—</span>
+    <button id="refresh-btn" class="btn-primary">↻ Refresh</button>
+  </div>
+</header>
+
+<!-- Metrics row -->
+<section class="metrics">
+  <div class="metric"><div class="metric-value" id="m-velocity">—</div><div class="metric-label">Velocity (30d)</div></div>
+  <div class="metric"><div class="metric-value" id="m-progress">—</div><div class="metric-label">In Progress</div></div>
+  <div class="metric"><div class="metric-value" id="m-review">—</div><div class="metric-label">In Review</div></div>
+  <div class="metric danger"><div class="metric-value" id="m-blocked">—</div><div class="metric-label">Blockers</div></div>
+  <div class="metric"><div class="metric-value" id="m-merged">—</div><div class="metric-label">PRs Merged (30d)</div></div>
+  <div class="metric"><div class="metric-value" id="m-commits">—</div><div class="metric-label">Commits (30d)</div></div>
+</section>
+
+<!-- Tabs -->
+<nav class="tabs">
+  <button class="tab active" data-tab="kanban">📋 Kanban</button>
+  <button class="tab" data-tab="people">👥 People</button>
+  <button class="tab" data-tab="sheets">📑 Sheets</button>
+  <button class="tab" data-tab="discord">💬 Discord</button>
+  <button class="tab" data-tab="assign">🤖 Auto-Assign</button>
+</nav>
+
+<!-- KANBAN -->
+<section id="tab-kanban" class="tab-panel active">
+  <div class="kanban" id="kanban"></div>
+</section>
+
+<!-- PEOPLE -->
+<section id="tab-people" class="tab-panel">
+  <div class="people-grid" id="people-grid"></div>
+</section>
+
+<!-- SHEETS -->
+<section id="tab-sheets" class="tab-panel">
+  <div class="card-block">
+    <h3>📑 Live data from Google Sheets</h3>
+    <p class="hint">Source: <code id="sheets-source">—</code></p>
+    <div id="sheets-table-wrap"><div class="loading">Loading…</div></div>
+  </div>
+</section>
+
+<!-- DISCORD -->
+<section id="tab-discord" class="tab-panel">
+  <div class="card-block">
+    <h3>💬 Discord live activity</h3>
+    <p class="hint">Real-time channel feed (server widget). To enable: Discord → Server Settings → Widget → Enable + paste Server ID in env.</p>
+    <div id="discord-widget-wrap" class="loading">No DISCORD_SERVER_ID set yet.</div>
+  </div>
+</section>
+
+<!-- ASSIGN -->
+<section id="tab-assign" class="tab-panel">
+  <div class="card-block">
+    <h3>🤖 Auto-assignment Engine</h3>
+    <p>How it works: every new GitHub issue triggers <code>POST /api/webhook</code> → engine analyzes title/body/labels for skill keywords → picks least-loaded dev who matches.</p>
+    <h4>Test the algorithm (dry-run, no actual assignment)</h4>
+    <div class="form-row">
+      <input type="number" id="dry-issue" placeholder="Issue number, e.g. 42">
+      <button id="dry-btn" class="btn-primary">Test pick</button>
+    </div>
+    <pre id="dry-result" class="result-pane">—</pre>
+
+    <h4>Force-assign now</h4>
+    <div class="form-row">
+      <input type="number" id="real-issue" placeholder="Issue number, e.g. 42">
+      <button id="real-btn" class="btn-secondary">Assign for real</button>
+    </div>
+    <pre id="real-result" class="result-pane">—</pre>
+
+    <h4>Current team config</h4>
+    <pre id="team-config" class="result-pane">Loading…</pre>
+    <p class="hint">To change: edit <code>TEAM_CONFIG</code> env var in Vercel Dashboard → Settings → Environment Variables.</p>
+  </div>
+</section>
+
+<footer>
+  <span>PM Command Center · auto-refresh every 30 sec · <a id="repo-link" href="#" target="_blank">repo</a></span>
+  <span>Hosted free on Vercel · v1.0</span>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
