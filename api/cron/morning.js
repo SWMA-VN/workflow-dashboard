@@ -44,14 +44,27 @@ export default async function handler(req, res) {
     const realIssues = openIssues.filter((i) => !i.pull_request);
     const inProgressGh = realIssues.filter((i) => (i.assignees || []).length > 0);
 
-    // Build per-member section
+    // Build per-member section + delivery focus
     const memberRows = allMembers.map((mb) => {
       const yDone = (yAft[mb] || {}).done || "—";
       const yWip = (yAft[mb] || {}).inProgress || "—";
       const tToday = (tMorn[mb] || {}).today || "—";
       const tYesterday = (tMorn[mb] || {}).yesterday || "—";
-      return { member: mb, yesterdayDone: yDone, yesterdayWip: yWip, todayPlan: tToday, todayYesterdayRecap: tYesterday };
+
+      let status, statusEmoji;
+      if (tToday !== "—" && yDone !== "—") { status = "shipped yesterday + has plan"; statusEmoji = "🟢"; }
+      else if (tToday !== "—") { status = "fresh plan today"; statusEmoji = "🔵"; }
+      else if (yWip !== "—") { status = "carrying over"; statusEmoji = "🟡"; }
+      else if (yDone !== "—") { status = "shipped, awaiting plan"; statusEmoji = "🔵"; }
+      else { status = "no log"; statusEmoji = "⚪"; }
+
+      return { member: mb, yesterdayDone: yDone, yesterdayWip: yWip, todayPlan: tToday, todayYesterdayRecap: tYesterday, status, statusEmoji };
     });
+
+    const focusBlock = memberRows.map((l) => {
+      const focus = pickFocus(l.todayPlan !== "—" ? l.todayPlan : (l.yesterdayWip !== "—" ? l.yesterdayWip : l.yesterdayDone), null);
+      return `${l.statusEmoji} **${l.member}** — _${l.status}_\n   🎯 Today: ${focus}`;
+    }).join("\n\n");
 
     const yesterdayDoneText = memberRows
       .filter((l) => l.yesterdayDone && l.yesterdayDone !== "—")
@@ -97,6 +110,7 @@ Be concrete and direct.`;
 
     // Discord
     const fields = [
+      { name: `🎯 DELIVERY FOCUS — per member today`, value: truncate(focusBlock, 1024), inline: false },
       { name: `✅ Yesterday (${yesterdayStr}) — DONE per member`, value: truncate(yesterdayDoneText, 1024), inline: false },
     ];
     if (carryOverText) fields.push({ name: `🔄 Carrying over from yesterday`, value: truncate(carryOverText, 1024), inline: false });
@@ -133,6 +147,8 @@ Be concrete and direct.`;
       <p><b>${todayStr} 10:15 (Hanoi)</b> · yesterday workday: ${yesterdayStr} · scope: ${esc(sc.label)}</p>
       <h3>AI Summary</h3>
       <p style="background:#fef3c7;padding:12px;border-left:4px solid #F59E0B;white-space:pre-wrap">${esc(aiSummary)}</p>
+      <h3>🎯 Delivery focus per member today</h3>
+      <ul>${memberRows.map((l) => `<li>${l.statusEmoji} <b>${esc(l.member)}</b> — <em>${esc(l.status)}</em><br>🎯 ${esc(pickFocus(l.todayPlan !== "—" ? l.todayPlan : (l.yesterdayWip !== "—" ? l.yesterdayWip : l.yesterdayDone)))}</li>`).join("")}</ul>
       <h3>✅ Yesterday — DONE</h3>
       ${yDoneHtml}
       <h3>➡️ Today — PLAN</h3>
@@ -175,4 +191,24 @@ function truncate(s, n) {
 }
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function pickFocus(text, _ignored) {
+  const t = (text || "").toLowerCase();
+  if (!t.trim() || t === "—") return "no entry yet";
+  const themes = [
+    { kw: ["medusa", "bydesign"], label: "Medusa / ByDesign" },
+    { kw: ["payment", "hitpay", "wechat", "fps", "checkout"], label: "Payment flow" },
+    { kw: ["enrollment", "enrollmentform"], label: "Enrollment form" },
+    { kw: ["cart"], label: "Cart refactor" },
+    { kw: ["e2e", "test", "luckywheel", "qa"], label: "E2E / QA" },
+    { kw: ["mobile", "ios", "android", "watch face", "psaim", "sdk"], label: "Mobile SDK / app" },
+    { kw: ["bundle-report"], label: "Bundle-report" },
+    { kw: ["staging", "deploy", "pipeline", "ci/cd", "configure workflow"], label: "Deploy / DevOps" },
+    { kw: ["ai", "deals", "language", "translate"], label: "AI / multi-language" },
+    { kw: ["contact", "import"], label: "Contacts" },
+  ];
+  const hit = themes.find((th) => th.kw.some((k) => t.includes(k)));
+  const firstLine = (text || "").split(/\n|\.|;/)[0].trim();
+  return hit ? `${hit.label} · ${truncate(firstLine, 60)}` : truncate(firstLine, 80);
 }

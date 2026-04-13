@@ -42,19 +42,34 @@ export default async function handler(req, res) {
         days: Math.floor((Date.now() - new Date(i.updated_at).getTime()) / 86400000),
       }));
 
-    // Build per-member lines for sheet section
+    // Build per-member lines + delivery status
     const memberLines = allMembers.map((mb) => {
       const aft = afternoon[mb] || {};
       const morn = morning[mb] || {};
       const done = aft.done || "—";
       const inProg = aft.inProgress || "—";
       const issues = aft.issues || morn.issues || "";
-      return { member: mb, done, inProgress: inProg, issues };
+
+      // Delivery status per member (deterministic, no AI needed)
+      let status, statusEmoji;
+      if (done !== "—" && inProg === "—") { status = "shipped, capacity free"; statusEmoji = "🟢"; }
+      else if (done !== "—" && inProg !== "—") { status = "shipped + carrying over"; statusEmoji = "🔵"; }
+      else if (done === "—" && inProg !== "—") { status = "still working"; statusEmoji = "🟡"; }
+      else { status = "no log"; statusEmoji = "⚪"; }
+      if (issues) statusEmoji = "🚨";
+
+      return { member: mb, done, inProgress: inProg, issues, status, statusEmoji };
     });
 
     const doneCount = memberLines.filter((l) => l.done && l.done !== "—").length;
     const wipCount = memberLines.filter((l) => l.inProgress && l.inProgress !== "—").length;
     const issuesCount = memberLines.filter((l) => l.issues).length;
+
+    // Team focus snapshot (deterministic, no AI)
+    const focusBlock = memberLines.map((l) => {
+      const focus = pickFocus(l.done, l.inProgress);
+      return `${l.statusEmoji} **${l.member}** — _${l.status}_\n   🎯 Focus: ${focus}`;
+    }).join("\n\n");
 
     // ===== Build Discord post =====
     const sheetDoneText = memberLines
@@ -116,6 +131,7 @@ Honest tone — if light, say so.`;
     const aiSummary = await aiSummarize(prompt, { maxTokens: 1500 });
 
     const fields = [
+      { name: `🎯 DELIVERY FOCUS — per member`, value: truncate(focusBlock, 1024), inline: false },
       { name: `✅ Sheet — DONE today (${doneCount} members)`, value: truncate(sheetDoneText, 1024), inline: false },
       { name: `🔄 Sheet — IN PROGRESS (rolling tomorrow, ${wipCount} members)`, value: truncate(sheetWipText, 1024), inline: false },
     ];
@@ -155,6 +171,9 @@ Honest tone — if light, say so.`;
       <p><b>${dateStr} 16:15 (Hanoi)</b> · scope: ${esc(sc.label)}</p>
       <h3>AI Summary</h3>
       <p style="background:#d1fae5;padding:12px;border-left:4px solid #16A085;white-space:pre-wrap">${esc(aiSummary)}</p>
+
+      <h3>🎯 Delivery focus per member</h3>
+      <ul>${memberLines.map((l) => `<li>${l.statusEmoji} <b>${esc(l.member)}</b> — <em>${esc(l.status)}</em><br>🎯 ${esc(pickFocus(l.done, l.inProgress))}</li>`).join("")}</ul>
 
       <h3>✅ Done today (per team member)</h3>
       ${sheetDoneHtml}
@@ -211,4 +230,38 @@ function truncate(s, n) {
 }
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// Distill the most concrete focus theme from a member's done + in-progress text.
+// Returns short phrase (~40-80 chars) PMs can scan in 1 second.
+function pickFocus(done, inProgress) {
+  const text = [
+    done && done !== "—" ? done : "",
+    inProgress && inProgress !== "—" ? inProgress : "",
+  ].join(" \n ").toLowerCase();
+  if (!text.trim()) return "no entry today";
+
+  // Keyword-driven focus categorization
+  const themes = [
+    { kw: ["medusa", "bydesign"], label: "Medusa / ByDesign integration" },
+    { kw: ["payment", "hitpay", "wechat", "fps", "checkout"], label: "Payment flow" },
+    { kw: ["enrollment", "enrollmentform"], label: "Enrollment form" },
+    { kw: ["cart"], label: "Cart refactor" },
+    { kw: ["e2e", "test", "luckywheel", "qa"], label: "E2E / QA testing" },
+    { kw: ["mobile", "ios", "android", "watch face", "psaim", "sdk"], label: "Mobile SDK / app" },
+    { kw: ["bundle-report"], label: "Bundle-report fix" },
+    { kw: ["staging", "deploy", "pipeline", "ci/cd", "configure workflow"], label: "Deploy / DevOps" },
+    { kw: ["ai", "deals", "language", "translate"], label: "AI / multi-language" },
+    { kw: ["contact", "import"], label: "Contacts import flow" },
+  ];
+
+  const hit = themes.find((t) => t.kw.some((k) => text.includes(k)));
+  if (hit) {
+    // Append a short snippet showing the actual task title
+    const firstLine = (inProgress !== "—" ? inProgress : done).split(/\n|\.|;/)[0].trim();
+    return `${hit.label} · ${truncate(firstLine, 60)}`;
+  }
+  // Fallback: first 60 chars of in-progress (or done)
+  const fallback = (inProgress !== "—" ? inProgress : done).split(/\n|\.|;/)[0].trim();
+  return truncate(fallback, 80);
 }
