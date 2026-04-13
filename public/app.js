@@ -3,6 +3,22 @@
 
 const REFRESH_MS = 30_000;
 
+// ===== Theme toggle =====
+const themeToggle = document.getElementById("theme-toggle");
+themeToggle.addEventListener("click", () => {
+  const cur = document.documentElement.getAttribute("data-theme") || "light";
+  const next = cur === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  localStorage.setItem("theme", next);
+});
+// Sync if OS theme changes (user hasn't manually overridden)
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
+  if (!localStorage.getItem("theme")) {
+    document.documentElement.setAttribute("data-theme", e.matches ? "dark" : "light");
+  }
+});
+
+// ===== Helpers =====
 async function fetchJson(path) {
   const r = await fetch(path);
   if (!r.ok) throw new Error(`${path} → ${r.status}`);
@@ -18,9 +34,17 @@ function ago(iso) {
   const days = Math.floor(ms / 86400000);
   if (days < 1) {
     const hrs = Math.floor(ms / 3600000);
-    return hrs < 1 ? "just now" : `${hrs}h ago`;
+    if (hrs < 1) {
+      const mins = Math.floor(ms / 60000);
+      return mins < 1 ? "just now" : `${mins}m ago`;
+    }
+    return `${hrs}h ago`;
   }
   return `${days}d ago`;
+}
+
+function avatar(login) {
+  return escapeHtml(login.slice(0, 2).toUpperCase());
 }
 
 const COLUMNS = ["Todo", "In Progress", "In Review", "Testing", "Blocked", "Done"];
@@ -34,6 +58,12 @@ function renderKanban(data) {
     colEl.className = "column";
     colEl.dataset.col = col;
     colEl.innerHTML = `<div class="column-header"><span>${col}</span><span class="col-count">${items.length}</span></div>`;
+    if (!items.length) {
+      const empty = document.createElement("div");
+      empty.style.cssText = "color:var(--text-faint);font-size:11px;text-align:center;padding:20px 0;font-style:italic";
+      empty.textContent = "—";
+      colEl.appendChild(empty);
+    }
     for (const issue of items) {
       const isBlocker = issue.labels.some((l) => l.toLowerCase().includes("block"));
       const isMerged = issue.labels.includes("merged");
@@ -41,13 +71,14 @@ function renderKanban(data) {
       card.className = "card" + (isBlocker ? " blocker" : "") + (isMerged ? " merged" : "");
       card.href = issue.url;
       card.target = "_blank";
+      card.rel = "noopener";
       const labels = issue.labels
         .filter((l) => !["pull-request", "merged"].includes(l.toLowerCase()))
         .slice(0, 3)
         .map((l) => `<span class="label-tag">${escapeHtml(l)}</span>`)
         .join("");
       const assignees = issue.assignees
-        .map((a) => `<span class="assignee" title="${escapeHtml(a)}">${escapeHtml(a.slice(0, 2).toUpperCase())}</span>`)
+        .map((a) => `<span class="assignee" title="${escapeHtml(a)}">${avatar(a)}</span>`)
         .join("");
       card.innerHTML = `
         <div class="card-num">#${issue.number}</div>
@@ -74,14 +105,14 @@ function renderPeople(data) {
   root.innerHTML = "";
   const sorted = Object.entries(data.by_person).sort((a, b) => b[1].commits - a[1].commits);
   if (!sorted.length) {
-    root.innerHTML = '<div class="loading">No activity yet.</div>';
+    root.innerHTML = '<div class="loading">No activity yet — pushes/PRs will show here.</div>';
     return;
   }
   for (const [login, s] of sorted) {
     const card = document.createElement("div");
     card.className = "person-card";
     card.innerHTML = `
-      <div class="person-name">${escapeHtml(login)}</div>
+      <div class="person-name"><span class="person-avatar">${avatar(login)}</span>${escapeHtml(login)}</div>
       <div class="person-stats">
         <div class="person-stat"><div class="person-stat-val">${s.commits}</div><div class="person-stat-label">Commits</div></div>
         <div class="person-stat"><div class="person-stat-val">${s.prs}</div><div class="person-stat-label">PRs</div></div>
@@ -92,6 +123,8 @@ function renderPeople(data) {
 }
 
 async function loadGithub() {
+  const refreshBtn = document.getElementById("refresh-btn");
+  refreshBtn.classList.add("spinning");
   document.getElementById("last-updated").textContent = "loading…";
   try {
     const data = await fetchJson("/api/github");
@@ -104,6 +137,8 @@ async function loadGithub() {
   } catch (e) {
     document.getElementById("last-updated").textContent = `error: ${e.message}`;
     document.getElementById("kanban").innerHTML = `<div class="loading">⚠️ ${escapeHtml(e.message)}<br><br>Check that <code>GITHUB_TOKEN</code> + <code>GITHUB_REPO</code> are set in Vercel env.</div>`;
+  } finally {
+    setTimeout(() => refreshBtn.classList.remove("spinning"), 400);
   }
 }
 
@@ -131,7 +166,7 @@ async function loadSheets() {
       html += "</tr>";
     }
     html += "</tbody></table>";
-    if (data.rows.length > 100) html += `<p class="hint">Showing first 100 of ${data.rows.length} rows.</p>`;
+    if (data.rows.length > 100) html += `<p class="hint" style="margin-top:10px">Showing first 100 of ${data.rows.length} rows.</p>`;
     wrap.innerHTML = html;
   } catch (e) {
     wrap.innerHTML = `<div class="loading">⚠️ ${escapeHtml(e.message)}</div>`;
@@ -139,8 +174,6 @@ async function loadSheets() {
 }
 
 async function loadDiscord() {
-  // Fetch server ID from a public endpoint, fall back to env if exposed.
-  // We expose just the server id via a simple API for the widget URL.
   try {
     const r = await fetch("/api/discord-info");
     if (r.ok) {
@@ -206,6 +239,13 @@ document.querySelectorAll(".tab").forEach((t) =>
 );
 
 document.getElementById("refresh-btn").addEventListener("click", loadGithub);
+
+// Keyboard shortcut: R to refresh
+document.addEventListener("keydown", (e) => {
+  if (e.key === "r" && !e.metaKey && !e.ctrlKey && document.activeElement.tagName !== "INPUT") {
+    loadGithub();
+  }
+});
 
 // Init
 loadGithub();
