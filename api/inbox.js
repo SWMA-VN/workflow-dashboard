@@ -110,6 +110,60 @@ Return ONLY the JSON array, no markdown, no explanation.`;
 }
 
 // Basic extraction without AI: split by bullet points / numbered lists
+// === GET handler: submission history ===
+async function handleHistory(req, res) {
+  res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=60");
+  try {
+    const repo = process.env.GITHUB_REPO;
+    const org = process.env.GITHUB_ORG;
+    let items = [];
+    if (org) {
+      const r = await ghGet2(`/search/issues?q=org:${org}+label:inbox-history+is:closed&sort=created&order=desc&per_page=50`);
+      items = r.items || [];
+    } else if (repo) {
+      items = await ghGet2(`/repos/${repo}/issues?labels=inbox-history&state=closed&sort=created&direction=desc&per_page=50`);
+    }
+    const history = items.map((issue) => {
+      const body = issue.body || "";
+      const titleMatch = body.match(/\*\*Title\*\*\s*\|\s*(.+)/);
+      const typeMatch = body.match(/\*\*Type\*\*\s*\|\s*`([^`]+)`/);
+      const sourceMatch = body.match(/\*\*Source\*\*\s*\|\s*(.+)/);
+      const submittedMatch = body.match(/\*\*Submitted\*\*\s*\|\s*(.+)/);
+      const aiMatch = body.match(/\*\*AI used\*\*\s*\|\s*(.+)/);
+      const createdMatch = body.match(/\*\*Issues created\*\*\s*\|\s*(\d+)/);
+      const taskRefs = [...body.matchAll(/#(\d+)\s*—\s*(.+?)(?:\(|$)/gm)];
+      const tasks = taskRefs.map((m) => ({
+        number: parseInt(m[1]),
+        title: m[2].trim(),
+        url: `https://github.com/${repo || "SWMA-VN/workflow-dashboard"}/issues/${m[1]}`,
+      }));
+      return {
+        log_number: issue.number, log_url: issue.html_url,
+        document_title: titleMatch ? titleMatch[1].trim() : issue.title.replace("[INBOX-LOG] ", ""),
+        doc_type: typeMatch ? typeMatch[1] : "unknown",
+        source: sourceMatch ? sourceMatch[1].trim() : "",
+        submitted_at: submittedMatch ? submittedMatch[1].trim() : issue.created_at,
+        ai_used: aiMatch ? aiMatch[1].trim() : "unknown",
+        issues_created: createdMatch ? parseInt(createdMatch[1]) : tasks.length,
+        tasks,
+      };
+    });
+    res.json({ generated_at: new Date().toISOString(), total: history.length, history });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: e.message });
+  }
+}
+
+async function ghGet2(path) {
+  const url = path.startsWith("http") ? path : `${GH_API}${path}`;
+  const r = await fetch(url, {
+    headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}`, Accept: "application/vnd.github+json" },
+  });
+  if (!r.ok) throw new Error(`GitHub ${r.status}`);
+  return r.json();
+}
+
 function extractBasic(content, title) {
   const lines = content.split(/\n/).map((l) => l.trim()).filter(Boolean);
   const items = [];
@@ -129,9 +183,9 @@ function extractBasic(content, title) {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "POST only" });
-  }
+  // GET = return submission history, POST = process new document
+  if (req.method === "GET") return handleHistory(req, res);
+  if (req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
 
   try {
     const { type, content, url, title = "Untitled document" } = req.body || {};
@@ -182,7 +236,7 @@ export default async function handler(req, res) {
 
     const created = [];
     for (const item of items) {
-      const issueBody = `${item.body || ""}\n\n---\n📥 Auto-created from inbox\n**Source:** ${title}\n**Priority:** ${item.priority || "P1"}\n**Labels:** ${(item.labels || []).join(", ") || "none"}`;
+      const issueBody = `${item.body || ""}\n\n---\n📥 **Auto-created from Inbox**\n**Source document:** ${title}\n**Priority:** ${item.priority || "P1"}\n**Labels:** ${(item.labels || []).join(", ") || "none"}\n**Source URL:** ${url || "_pasted text_"}`;
 
       const labels = [...(item.labels || [])];
       if (item.priority) labels.push(item.priority.toLowerCase());
@@ -207,7 +261,63 @@ export default async function handler(req, res) {
 
     const successCount = created.filter((c) => c.number).length;
 
-    // Step 4: Discord notification
+    // Step 4: Create history tracking issue (stores what was submitted + what was created)
+    let trackingIssue = null;
+    if (successCount > 0) {
+      const issueLinks = created.filter((c) => c.number)
+        .map((c) => `- [x] #${c.number} — ${c.title} (${(c.labels || []).join(", ")})`).join("\n");
+
+      const contentPreview = text.slice(0, 1500).replace(/`/g, "'");
+      const now = new Date().toISOString();
+      const docType = url ? (url.includes("spreadsheets") ? "google-sheet" : url.includes("document") ? "google-doc" : "url") : "pasted-text";
+
+      const trackBody = `## Inbox Submission Log
+
+| Field | Value |
+|---|---|
+| **Title** | ${title} |
+| **Type** | \`${docType}\` |
+| **Source** | ${url || "_pasted text_"} |
+| **Submitted** | ${now} |
+| **AI used** | ${aiAvailable ? "Yes (Gemini)" : "No (basic extraction)"} |
+| **Items extracted** | ${items.length} |
+| **Issues created** | ${successCount} |
+
+### Generated Tasks
+
+${issueLinks}
+
+### Document Preview (first 1500 chars)
+
+\`\`\`
+${contentPreview}
+\`\`\`
+
+---
+_Auto-generated by PM Command Center Inbox_`;
+
+      try {
+        trackingIssue = await ghPost(`/repos/${targetRepo}/issues`, {
+          title: `[INBOX-LOG] ${title} (${successCount} tasks)`,
+          body: trackBody,
+          labels: ["inbox-history"],
+        });
+        // Close immediately — it's a log, not a task
+        await fetch(`${GH_API}/repos/${targetRepo}/issues/${trackingIssue.number}`, {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+            Accept: "application/vnd.github+json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ state: "closed" }),
+        });
+      } catch (e) {
+        console.error("[inbox] Failed to create tracking issue:", e.message);
+      }
+    }
+
+    // Step 5: Discord notification
     const issueList = created
       .filter((c) => c.number)
       .map((c) => `• [#${c.number}](${c.url}) ${c.title}`)
@@ -239,6 +349,7 @@ export default async function handler(req, res) {
       items_extracted: items.length,
       issues_created: successCount,
       issues: created,
+      tracking_issue: trackingIssue ? { number: trackingIssue.number, url: trackingIssue.html_url } : null,
     });
   } catch (e) {
     console.error(e);

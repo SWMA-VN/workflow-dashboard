@@ -268,7 +268,7 @@ document.getElementById("inbox-submit").addEventListener("click", async () => {
       <div class="inbox-issues-list">${issueHtml}</div>`;
 
     // Refresh dashboard data after a delay (let webhooks fire)
-    setTimeout(loadGithub, 5000);
+    setTimeout(() => { loadGithub(); loadInboxHistory(); }, 5000);
   } catch (e) {
     resultTitle.textContent = "Error";
     resultBody.innerHTML = `<pre class="result-pane">${escapeHtml(e.message)}</pre>`;
@@ -277,6 +277,38 @@ document.getElementById("inbox-submit").addEventListener("click", async () => {
     submitBtn.textContent = "📥 Process & Create Issues";
   }
 });
+
+// ======= INBOX HISTORY =======
+async function loadInboxHistory() {
+  const wrap = document.getElementById("inbox-history-list");
+  try {
+    const data = await fetchJson("/api/inbox");
+    if (!data.history || !data.history.length) {
+      wrap.innerHTML = '<div class="loading">No submissions yet. Use the form above to process your first document.</div>';
+      return;
+    }
+    wrap.innerHTML = data.history.map((h) => {
+      const typeIcon = { "google-sheet": "📊", "google-doc": "📄", "pasted-text": "📝", "url": "🔗" }[h.doc_type] || "📎";
+      const date = new Date(h.submitted_at).toLocaleDateString("en-CA") + " " + new Date(h.submitted_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+      const taskLinks = (h.tasks || []).map((t) =>
+        `<a href="${t.url}" target="_blank" class="hist-task-link">#${t.number}</a>`
+      ).join(" ");
+
+      return `
+        <a href="${h.log_url}" target="_blank" class="hist-row">
+          <span class="hist-icon">${typeIcon}</span>
+          <div class="hist-main">
+            <div class="hist-title">${escapeHtml(h.document_title)}</div>
+            <div class="hist-meta">${date} · ${h.doc_type} · AI: ${h.ai_used} · ${h.issues_created} tasks created</div>
+            <div class="hist-tasks">${taskLinks || '<span class="hint">no tasks</span>'}</div>
+          </div>
+          <span class="hist-count">${h.issues_created}</span>
+        </a>`;
+    }).join("");
+  } catch (e) {
+    wrap.innerHTML = `<div class="loading">⚠️ ${escapeHtml(e.message)}</div>`;
+  }
+}
 
 document.getElementById("dry-btn").addEventListener("click", async () => {
   const num = document.getElementById("dry-issue").value;
@@ -523,6 +555,7 @@ document.querySelectorAll(".tab").forEach((t) =>
     if (t.dataset.tab === "overview") loadOverview();
     if (t.dataset.tab === "performance") loadPerformance();
     if (t.dataset.tab === "kanban") loadGithub();
+    if (t.dataset.tab === "inbox") loadInboxHistory();
     if (t.dataset.tab === "sheets") loadSheets();
     if (t.dataset.tab === "discord") loadDiscord();
     if (t.dataset.tab === "assign") loadAssign();
