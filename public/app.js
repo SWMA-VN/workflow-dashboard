@@ -155,7 +155,12 @@ async function loadGithub() {
     document.getElementById("last-updated").textContent = `updated ${new Date().toLocaleTimeString()}`;
   } catch (e) {
     document.getElementById("last-updated").textContent = `error: ${e.message}`;
-    document.getElementById("kanban").innerHTML = `<div class="loading">⚠️ ${escapeHtml(e.message)}<br><br>Check that <code>GITHUB_TOKEN</code> + <code>GITHUB_REPO</code> are set in Vercel env.</div>`;
+    const msg = e.message || "";
+    if (msg.includes("429") || msg.includes("rate limit")) {
+      document.getElementById("kanban").innerHTML = `<div class="loading">GitHub API rate limit reached. Auto-retrying in 2 minutes.<br><br>This happens when the dashboard refreshes too frequently. It will recover automatically.</div>`;
+    } else {
+      document.getElementById("kanban").innerHTML = `<div class="loading">${escapeHtml(msg)}<br><br>Check that GITHUB_TOKEN + GITHUB_REPO are set in Vercel env.</div>`;
+    }
   } finally {
     setTimeout(() => refreshBtn.classList.remove("spinning"), 400);
   }

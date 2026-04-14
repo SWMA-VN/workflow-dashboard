@@ -119,6 +119,14 @@ export default async function handler(req, res) {
     });
   } catch (e) {
     console.error(e);
+    const msg = e.message || "";
+    if (msg.includes("403") || msg.includes("rate limit")) {
+      res.setHeader("Cache-Control", "s-maxage=120, stale-while-revalidate=300");
+      return res.status(429).json({
+        error: "GitHub API rate limit reached. Dashboard will auto-recover in a few minutes.",
+        retry_after_seconds: 120,
+      });
+    }
     res.status(500).json({ error: e.message });
   }
 }
