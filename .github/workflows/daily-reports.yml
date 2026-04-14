@@ -1,0 +1,37 @@
+name: Daily Reports
+
+on:
+  schedule:
+    - cron: '15 3 * * 1-5'
+    - cron: '15 9 * * 1-5'
+    - cron: '0 10 * * 5'
+  workflow_dispatch:
+
+jobs:
+  trigger-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine report type
+        id: which
+        run: |
+          HOUR_UTC=$(date -u +%H)
+          DOW=$(date -u +%u)
+          if [ "$HOUR_UTC" -le "05" ]; then
+            echo "type=morning" >> "$GITHUB_OUTPUT"
+          elif [ "$DOW" = "5" ] && [ "$HOUR_UTC" -ge "09" ] && [ "$HOUR_UTC" -le "11" ]; then
+            echo "type=eod+weekly" >> "$GITHUB_OUTPUT"
+          else
+            echo "type=eod" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Morning report
+        if: contains(steps.which.outputs.type, 'morning')
+        run: curl -sf --max-time 90 "${{ secrets.DASHBOARD_URL }}/api/cron/morning" | python3 -m json.tool
+
+      - name: EOD report
+        if: contains(steps.which.outputs.type, 'eod')
+        run: curl -sf --max-time 90 "${{ secrets.DASHBOARD_URL }}/api/cron/eod" | python3 -m json.tool
+
+      - name: Weekly report
+        if: contains(steps.which.outputs.type, 'weekly')
+        run: curl -sf --max-time 90 "${{ secrets.DASHBOARD_URL }}/api/cron/weekly" | python3 -m json.tool
