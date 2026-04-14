@@ -25,11 +25,21 @@ export default async function handler(req, res) {
     for (const issue of realIssues) {
       const labels = (issue.labels || []).map((l) => l.name.toLowerCase());
       let col = "Todo";
-      if (labels.includes("status:in-progress") || labels.includes("in progress")) col = "In Progress";
-      else if (labels.includes("status:in-review") || labels.includes("in review")) col = "In Review";
-      else if (labels.includes("status:testing") || labels.includes("testing")) col = "Testing";
-      else if (labels.includes("blocked") || labels.includes("blocker")) col = "Blocked";
-      if (col === "Todo" && (issue.assignees || []).length > 0) col = "In Progress";
+
+      // Priority: blocked > status labels > assignee fallback
+      if (labels.includes("blocked") || labels.includes("blocker")) {
+        col = "Blocked";
+      } else if (labels.includes("status:testing")) {
+        col = "Testing";
+      } else if (labels.includes("status:in-review")) {
+        col = "In Review";
+      } else if (labels.includes("status:in-progress")) {
+        col = "In Progress";
+      } else if ((issue.assignees || []).length > 0) {
+        // Assigned but no status label yet → In Progress
+        col = "In Progress";
+      }
+
       cols[col].push(simplifyIssue(issue));
     }
 
