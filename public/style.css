@@ -290,28 +290,31 @@ button {
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* time filter bar */
+/* filter bar */
 .filter-bar {
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.filter-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 16px;
-  padding: 10px 16px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  flex-wrap: wrap;
 }
 .filter-label {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.6px;
   white-space: nowrap;
 }
-.filter-group { display: flex; gap: 4px; }
+.filter-group { display: flex; gap: 3px; }
 .filter-btn {
-  padding: 6px 14px;
+  padding: 6px 12px;
   font-size: 12px;
   font-weight: 500;
   border-radius: 6px;
@@ -327,6 +330,75 @@ button {
   border-color: var(--accent);
   font-weight: 600;
 }
+
+/* Date range picker */
+.date-range {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 8px 0 0;
+  animation: slideDown 0.15s ease;
+}
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.date-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.date-field label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.date-field input[type="date"] {
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: "JetBrains Mono", monospace;
+  background: var(--bg);
+  color: var(--text);
+  transition: border-color 0.12s ease;
+  min-width: 140px;
+}
+.date-field input[type="date"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+/* Dark mode date input icon */
+[data-theme="dark"] .date-field input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.8);
+}
+.date-sep {
+  color: var(--text-faint);
+  font-size: 14px;
+  padding-bottom: 6px;
+}
+.filter-apply-btn {
+  padding: 7px 18px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  transition: all 0.12s ease;
+  white-space: nowrap;
+}
+.filter-apply-btn:hover { background: var(--accent-hover); transform: translateY(-1px); }
+.filter-info {
+  font-size: 11px;
+  color: var(--text-faint);
+  margin-top: 6px;
+  font-family: "JetBrains Mono", monospace;
+}
+.filter-info:empty { display: none; }
 
 /* kanban */
 .kanban {

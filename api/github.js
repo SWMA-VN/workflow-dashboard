@@ -16,9 +16,22 @@ export default async function handler(req, res) {
       });
     }
 
-    // Time filter: ?days=7 (default), ?days=30, ?days=90, ?days=365, ?days=0 (all time)
-    const daysParam = parseInt(req.query?.days) || 7;
-    const doneDays = daysParam === 0 ? 365 * 3 : daysParam; // 0 = all time (max 3 years)
+    // Time filter: ?days=7 | ?from=2026-01-01&to=2026-04-14 | ?days=0 (all)
+    const fromParam = req.query?.from;
+    const toParam = req.query?.to;
+    let daysParam, sinceDate;
+
+    if (fromParam) {
+      // Custom date range
+      const fromDate = new Date(fromParam);
+      const toDate = toParam ? new Date(toParam + "T23:59:59Z") : new Date();
+      daysParam = Math.ceil((toDate - fromDate) / 86400000);
+      sinceDate = fromDate.toISOString();
+    } else {
+      daysParam = parseInt(req.query?.days) || 7;
+      const doneDays = daysParam === 0 ? 365 * 3 : daysParam;
+      sinceDate = new Date(Date.now() - doneDays * 86400000).toISOString();
+    }
 
     const openIssues = await listIssues({ state: "open" });
     const isLog = (i) => (i.labels || []).some((l) => l.name === "inbox-history");
@@ -26,12 +39,14 @@ export default async function handler(req, res) {
     const openPrs = openIssues.filter((i) => i.pull_request);
 
     // Fetch closed issues for Done column (controlled by time filter)
-    const sinceDate = new Date(Date.now() - doneDays * 86400000).toISOString();
     const closedIssues = await listIssues({ state: "closed", since: sinceDate });
-    const recentlyClosed = closedIssues.filter((i) =>
-      !i.pull_request && !isLog(i) &&
-      i.closed_at && new Date(i.closed_at).getTime() > Date.now() - doneDays * 86400000
-    );
+    const sinceMs = new Date(sinceDate).getTime();
+    const toMs = toParam ? new Date(toParam + "T23:59:59Z").getTime() : Date.now();
+    const recentlyClosed = closedIssues.filter((i) => {
+      if (i.pull_request || isLog(i) || !i.closed_at) return false;
+      const t = new Date(i.closed_at).getTime();
+      return t >= sinceMs && t <= toMs;
+    });
     const m = await getMetrics({ days: 30 });
 
     const cols = Object.fromEntries(COLUMNS.map((c) => [c, []]));
@@ -89,6 +104,8 @@ export default async function handler(req, res) {
       generated_at: new Date().toISOString(),
       repo: process.env.GITHUB_REPO || process.env.GITHUB_ORG,
       filter_days: daysParam,
+      filter_from: fromParam || null,
+      filter_to: toParam || null,
       metrics: {
         velocity_30d: m.prs_merged.length,
         in_progress: m.in_progress.length,

@@ -3,6 +3,8 @@
 
 const REFRESH_MS = 10_000; // 10 sec — near real-time
 let filterDays = parseInt(localStorage.getItem("filterDays")) || 7;
+let filterFrom = localStorage.getItem("filterFrom") || "";
+let filterTo = localStorage.getItem("filterTo") || "";
 
 // ===== Theme toggle =====
 const themeToggle = document.getElementById("theme-toggle");
@@ -130,12 +132,26 @@ async function loadGithub() {
   refreshBtn.classList.add("spinning");
   document.getElementById("last-updated").textContent = "loading...";
   try {
-    const data = await fetchJson(`/api/github?days=${filterDays}`);
+    const filterQuery = filterFrom && filterTo
+      ? `from=${filterFrom}&to=${filterTo}`
+      : `days=${filterDays}`;
+    const data = await fetchJson(`/api/github?${filterQuery}`);
     document.getElementById("repo-name").textContent = data.repo;
     document.getElementById("repo-link").href = `https://github.com/${data.repo}`;
     renderKanban(data);
     renderMetrics(data);
     renderPeople(data);
+    // Show filter info
+    const info = document.getElementById("filter-info");
+    if (info) {
+      if (data.filter_from && data.filter_to) {
+        info.textContent = `Showing: ${data.filter_from} to ${data.filter_to} · Done: ${data.columns?.Done?.length || 0} closed issues`;
+      } else if (data.filter_days === 0) {
+        info.textContent = `Showing: all time · Done: ${data.columns?.Done?.length || 0} closed issues`;
+      } else {
+        info.textContent = `Showing: last ${data.filter_days} days · Done: ${data.columns?.Done?.length || 0} closed issues`;
+      }
+    }
     document.getElementById("last-updated").textContent = `updated ${new Date().toLocaleTimeString()}`;
   } catch (e) {
     document.getElementById("last-updated").textContent = `error: ${e.message}`;
@@ -582,20 +598,78 @@ function initFromHash() { switchTab(window.location.hash.replace("#", "") || "ov
 
 document.getElementById("refresh-btn").addEventListener("click", loadGithub);
 
-// Time filter buttons
-document.querySelectorAll("#time-filter .filter-btn").forEach((btn) => {
-  // Set active state on load
-  if (parseInt(btn.dataset.days) === filterDays) {
-    document.querySelectorAll("#time-filter .filter-btn").forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
+// Time filter
+function setActiveFilter(days) {
+  document.querySelectorAll("#time-filter .filter-btn").forEach((b) => b.classList.remove("active"));
+  const match = document.querySelector(`#time-filter .filter-btn[data-days="${days}"]`);
+  if (match) match.classList.add("active");
+}
+
+function applyPresetFilter(days) {
+  filterDays = days;
+  filterFrom = "";
+  filterTo = "";
+  localStorage.setItem("filterDays", days);
+  localStorage.removeItem("filterFrom");
+  localStorage.removeItem("filterTo");
+  setActiveFilter(days);
+  document.getElementById("date-range").style.display = "none";
+  loadGithub();
+}
+
+function applyCustomFilter() {
+  const from = document.getElementById("date-from").value;
+  const to = document.getElementById("date-to").value;
+  if (!from || !to) return;
+  if (from > to) { alert("'From' must be before 'To'"); return; }
+  filterFrom = from;
+  filterTo = to;
+  filterDays = 0;
+  localStorage.setItem("filterFrom", from);
+  localStorage.setItem("filterTo", to);
+  localStorage.setItem("filterDays", 0);
+  setActiveFilter("custom");
+  loadGithub();
+}
+
+// Init filter state
+(function initFilter() {
+  if (filterFrom && filterTo) {
+    setActiveFilter("custom");
+    document.getElementById("date-range").style.display = "flex";
+    document.getElementById("date-from").value = filterFrom;
+    document.getElementById("date-to").value = filterTo;
+  } else {
+    setActiveFilter(filterDays);
   }
+})();
+
+document.querySelectorAll("#time-filter .filter-btn").forEach((btn) => {
   btn.addEventListener("click", () => {
-    filterDays = parseInt(btn.dataset.days);
-    localStorage.setItem("filterDays", filterDays);
-    document.querySelectorAll("#time-filter .filter-btn").forEach((b) => b.classList.remove("active"));
-    btn.classList.add("active");
-    loadGithub();
+    if (btn.dataset.days === "custom") {
+      const range = document.getElementById("date-range");
+      const show = range.style.display === "none";
+      range.style.display = show ? "flex" : "none";
+      if (show) {
+        // Default: last 30 days
+        const today = new Date().toISOString().slice(0, 10);
+        const month = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+        if (!document.getElementById("date-from").value) document.getElementById("date-from").value = month;
+        if (!document.getElementById("date-to").value) document.getElementById("date-to").value = today;
+        document.getElementById("date-from").focus();
+      }
+      setActiveFilter("custom");
+    } else {
+      applyPresetFilter(parseInt(btn.dataset.days));
+    }
   });
+});
+
+document.getElementById("date-apply").addEventListener("click", applyCustomFilter);
+
+// Enter key in date fields triggers apply
+document.querySelectorAll("#date-range input[type=date]").forEach((input) => {
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") applyCustomFilter(); });
 });
 
 // Keyboard shortcut: R to refresh
