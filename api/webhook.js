@@ -225,7 +225,7 @@ export default async function handler(req, res) {
     // --- Blocked label added ---
     if (body.action === "labeled") {
       const label = body.label?.name?.toLowerCase() || "";
-      if (label === "blocked" || label === "blocker") {
+      if (label === "block" || label === "blocked" || label === "blocker") {
         await postDiscord({
           content: "**BLOCKER ALERT**",
           embeds: [makeEmbed({

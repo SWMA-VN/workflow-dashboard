@@ -27,7 +27,7 @@ export default async function handler(req, res) {
       let col = "Todo";
 
       // Priority: blocked > status labels > assignee fallback
-      if (labels.includes("blocked") || labels.includes("blocker")) {
+      if (labels.includes("block") || labels.includes("blocked") || labels.includes("blocker")) {
         col = "Blocked";
       } else if (labels.includes("status:testing")) {
         col = "Testing";
