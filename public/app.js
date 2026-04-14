@@ -25,9 +25,7 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
 
 // ===== Helpers =====
 async function fetchJson(path) {
-  // Bust cache with timestamp to get fresh data every call
-  const sep = path.includes("?") ? "&" : "?";
-  const r = await fetch(`${path}${sep}_t=${Date.now()}`);
+  const r = await fetch(path);
   if (!r.ok) throw new Error(`${path} → ${r.status}`);
   return r.json();
 }

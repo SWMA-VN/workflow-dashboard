@@ -6,8 +6,9 @@ import { listIssues, listPulls, getMetrics } from "../lib/github.js";
 const COLUMNS = ["Todo", "In Progress", "In Review", "Testing", "Blocked", "Done"];
 
 export default async function handler(req, res) {
-  // Cache server-side: 5 min (no auto-poll, only manual refresh)
-  res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=600");
+  // No auto-poll. Data fetched only on user action (Refresh, filter, tab switch).
+  // No cache-busting from client. Vercel CDN caches 10 min for fast repeat loads.
+  res.setHeader("Cache-Control", "s-maxage=600, stale-while-revalidate=1200");
   try {
     if (!process.env.GITHUB_TOKEN || !process.env.GITHUB_REPO) {
       return res.status(500).json({
