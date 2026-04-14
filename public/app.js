@@ -1,7 +1,9 @@
 // PM Command Center — public dashboard.
 // All data fetched via /api/* (server-side, secrets stay safe).
 
-const REFRESH_MS = 30_000; // 30 sec — balances real-time with API rate limits
+// No auto-polling — manual refresh only (prevents rate limits)
+// Data loads on: page load, tab switch, filter change, Refresh click
+let lastGithubData = null; // cache last successful response
 let filterDays = parseInt(localStorage.getItem("filterDays")) || 7;
 let filterFrom = localStorage.getItem("filterFrom") || "";
 let filterTo = localStorage.getItem("filterTo") || "";
@@ -135,7 +137,24 @@ async function loadGithub() {
     const filterQuery = filterFrom && filterTo
       ? `from=${filterFrom}&to=${filterTo}`
       : `days=${filterDays}`;
-    const data = await fetchJson(`/api/github?${filterQuery}`);
+    let data;
+    try {
+      data = await fetchJson(`/api/github?${filterQuery}`);
+      if (data.error) throw new Error(data.error);
+      lastGithubData = data; // cache on success
+    } catch (fetchErr) {
+      // On ANY error: show last cached data if available
+      if (lastGithubData) {
+        data = lastGithubData;
+        document.getElementById("last-updated").textContent = `cached · ${new Date().toLocaleTimeString()}`;
+        setTimeout(() => refreshBtn.classList.remove("spinning"), 400);
+        renderKanban(data);
+        renderMetrics(data);
+        renderPeople(data);
+        return;
+      }
+      throw fetchErr;
+    }
     document.getElementById("repo-name").textContent = data.repo;
     document.getElementById("repo-link").href = `https://github.com/${data.repo}`;
     renderKanban(data);
@@ -601,7 +620,21 @@ document.querySelectorAll(".tab").forEach((t) =>
 window.addEventListener("hashchange", () => switchTab(window.location.hash.replace("#", "")));
 function initFromHash() { switchTab(window.location.hash.replace("#", "") || "overview"); }
 
-document.getElementById("refresh-btn").addEventListener("click", loadGithub);
+// Refresh button: reset all filters + reload
+document.getElementById("refresh-btn").addEventListener("click", () => {
+  filterDays = 7;
+  filterFrom = "";
+  filterTo = "";
+  localStorage.setItem("filterDays", 7);
+  localStorage.removeItem("filterFrom");
+  localStorage.removeItem("filterTo");
+  setActiveFilter(7);
+  document.getElementById("date-range").style.display = "none";
+  loadGithub();
+  // Also reload current tab data
+  const slug = window.location.hash.replace("#", "") || "overview";
+  if (TAB_LOADERS[slug]) TAB_LOADERS[slug]();
+});
 
 // Time filter
 function setActiveFilter(days) {
@@ -684,11 +717,6 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// Init
+// Init — load once on page open, no auto-polling
 loadGithub();
 initFromHash();
-setInterval(() => {
-  loadGithub();
-  const slug = window.location.hash.replace("#", "") || "overview";
-  if (TAB_LOADERS[slug]) TAB_LOADERS[slug]();
-}, REFRESH_MS);

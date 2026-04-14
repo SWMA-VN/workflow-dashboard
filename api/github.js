@@ -6,9 +6,8 @@ import { listIssues, listPulls, getMetrics } from "../lib/github.js";
 const COLUMNS = ["Todo", "In Progress", "In Review", "Testing", "Blocked", "Done"];
 
 export default async function handler(req, res) {
-  // Org-wide fetches are heavier; longer cache to avoid rate limits
-  const cacheTime = process.env.GITHUB_ORG ? 60 : 10;
-  res.setHeader("Cache-Control", `s-maxage=${cacheTime}, stale-while-revalidate=${cacheTime * 2}`);
+  // Cache server-side: 5 min (no auto-poll, only manual refresh)
+  res.setHeader("Cache-Control", "s-maxage=300, stale-while-revalidate=600");
   try {
     if (!process.env.GITHUB_TOKEN || !process.env.GITHUB_REPO) {
       return res.status(500).json({
