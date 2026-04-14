@@ -926,6 +926,127 @@ footer {
   .wip-summary { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* ============================================================
+   INBOX TAB
+   ============================================================ */
+.inbox-form { margin: 16px 0; }
+.inbox-label {
+  display: block;
+  margin-bottom: 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+.inbox-input {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--text);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.inbox-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.inbox-form textarea {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: "JetBrains Mono", monospace;
+  background: var(--bg);
+  color: var(--text);
+  resize: vertical;
+  line-height: 1.5;
+  transition: border-color 0.15s ease;
+}
+.inbox-form textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.inbox-type-row { display: flex; gap: 8px; margin-top: 8px; }
+.inbox-type-btn {
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.inbox-type-btn.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.inbox-type-btn:hover { background: var(--bg-hover); }
+.inbox-submit-btn {
+  background: var(--accent);
+  color: #fff;
+  padding: 12px 28px;
+  font-size: 15px;
+  font-weight: 600;
+  border-radius: 10px;
+  margin-top: 8px;
+  transition: all 0.15s ease;
+}
+.inbox-submit-btn:hover { background: var(--accent-hover); transform: translateY(-1px); }
+.inbox-submit-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+.inbox-result {
+  margin-top: 20px;
+  padding: 20px;
+  background: var(--bg-elevated);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+.inbox-result h4 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 12px;
+}
+.inbox-issues-list { display: flex; flex-direction: column; gap: 8px; }
+.inbox-issue-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-card);
+  border-radius: 8px;
+  border: 1px solid var(--border-soft);
+  border-left: 3px solid var(--purple);
+  text-decoration: none;
+  color: inherit;
+  transition: all 0.15s ease;
+}
+.inbox-issue-card:hover {
+  border-color: var(--purple);
+  box-shadow: var(--shadow);
+  transform: translateX(2px);
+  text-decoration: none;
+}
+.inbox-issue-num {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 12px;
+  color: var(--text-muted);
+  min-width: 40px;
+}
+.inbox-issue-title { flex: 1; font-size: 13px; font-weight: 500; }
+.inbox-issue-labels { display: flex; gap: 4px; flex-wrap: wrap; }
+.inbox-history { margin-top: 28px; }
+.inbox-history h4 { font-size: 14px; font-weight: 600; color: var(--text-muted); margin-bottom: 4px; }
+
 /* Theme toggle icon swap */
 .theme-icon-sun, .theme-icon-moon { display: none; }
 [data-theme="dark"] .theme-icon-sun { display: block; }

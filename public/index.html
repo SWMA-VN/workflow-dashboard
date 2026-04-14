@@ -75,6 +75,7 @@
   <button class="tab" data-tab="people">👥 People</button>
   <button class="tab" data-tab="sheets">📑 Sheets</button>
   <button class="tab" data-tab="discord">💬 Discord</button>
+  <button class="tab" data-tab="inbox">📥 Inbox</button>
   <button class="tab" data-tab="assign">🤖 Auto-Assign</button>
 </nav>
 
@@ -165,6 +166,64 @@
     <h3>💬 Discord live activity</h3>
     <p class="hint">Real-time channel feed (server widget). To enable: Discord → Server Settings → Widget → Enable + paste Server ID in env.</p>
     <div id="discord-widget-wrap" class="loading">No DISCORD_SERVER_ID set yet.</div>
+  </div>
+</section>
+
+<!-- INBOX -->
+<section id="tab-inbox" class="tab-panel">
+  <div class="card-block inbox-block">
+    <h3>📥 Inbox — Drop anything, get issues + auto-assign</h3>
+    <p class="hint">Paste a Google Sheet URL, Google Doc URL, meeting notes, spec text, or any content. AI extracts action items → creates GitHub issues → auto-assigns to the right dev.</p>
+
+    <div class="inbox-form">
+      <label class="inbox-label">Title (what is this document?)
+        <input type="text" id="inbox-title" placeholder="e.g. Sprint planning notes, Q2 spec, Meeting 2026-04-14" class="inbox-input">
+      </label>
+
+      <label class="inbox-label">Source type
+        <div class="inbox-type-row">
+          <button class="inbox-type-btn active" data-type="text">📝 Paste text</button>
+          <button class="inbox-type-btn" data-type="url">🔗 Google Sheet / Doc URL</button>
+        </div>
+      </label>
+
+      <div id="inbox-text-input" class="inbox-field">
+        <label class="inbox-label">Paste meeting notes, spec, action items, or any text
+          <textarea id="inbox-content" rows="10" placeholder="Paste content here...&#10;&#10;Examples:&#10;- Meeting summary with bullet points&#10;- Spec with requirements&#10;- Action items from Zoom call&#10;- Copy-pasted email thread&#10;&#10;AI will extract tasks and create issues for each."></textarea>
+        </label>
+      </div>
+
+      <div id="inbox-url-input" class="inbox-field" style="display:none">
+        <label class="inbox-label">Google Sheet or Doc URL
+          <input type="url" id="inbox-url" placeholder="https://docs.google.com/spreadsheets/d/... or https://docs.google.com/document/d/..." class="inbox-input">
+        </label>
+        <p class="hint">Sheet must be "anyone with link can view". Google Docs must be published or viewable.</p>
+      </div>
+
+      <button id="inbox-submit" class="inbox-submit-btn">📥 Process & Create Issues</button>
+    </div>
+
+    <div id="inbox-result" class="inbox-result" style="display:none">
+      <h4 id="inbox-result-title">Processing…</h4>
+      <div id="inbox-result-body"></div>
+    </div>
+
+    <div class="inbox-history">
+      <h4>Supported inputs</h4>
+      <table class="sheets-table" style="margin-top:8px">
+        <thead><tr><th>Input type</th><th>How to use</th><th>What happens</th></tr></thead>
+        <tbody>
+          <tr><td>📝 Meeting notes</td><td>Paste text with bullet points</td><td>AI extracts action items → issues</td></tr>
+          <tr><td>📊 Google Sheet</td><td>Paste sheet URL</td><td>Reads CSV → AI finds tasks → issues</td></tr>
+          <tr><td>📄 Google Doc</td><td>Paste doc URL</td><td>Reads text → AI extracts → issues</td></tr>
+          <tr><td>📋 Spec / requirements</td><td>Paste text or URL</td><td>AI splits into dev tasks → issues</td></tr>
+          <tr><td>✉️ Email thread</td><td>Paste email body</td><td>AI finds action items → issues</td></tr>
+          <tr><td>🎥 Zoom summary</td><td>Paste transcript or Otter.ai text</td><td>AI extracts decisions + tasks → issues</td></tr>
+          <tr><td>📈 PPT text</td><td>Paste slide content</td><td>AI finds tasks from slides → issues</td></tr>
+        </tbody>
+      </table>
+      <p class="hint" style="margin-top:8px">Every created issue is auto-assigned via the engine (webhook fires within seconds). All issues get the <code>inbox</code> label so you can filter them.</p>
+    </div>
   </div>
 </section>
 

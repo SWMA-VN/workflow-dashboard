@@ -202,6 +202,82 @@ async function loadAssign() {
   }
 }
 
+// ======= INBOX TAB =======
+document.querySelectorAll(".inbox-type-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".inbox-type-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    const t = btn.dataset.type;
+    document.getElementById("inbox-text-input").style.display = t === "text" ? "" : "none";
+    document.getElementById("inbox-url-input").style.display = t === "url" ? "" : "none";
+  });
+});
+
+document.getElementById("inbox-submit").addEventListener("click", async () => {
+  const title = document.getElementById("inbox-title").value.trim() || "Untitled";
+  const activeType = document.querySelector(".inbox-type-btn.active").dataset.type;
+  const content = activeType === "text" ? document.getElementById("inbox-content").value.trim() : "";
+  const url = activeType === "url" ? document.getElementById("inbox-url").value.trim() : "";
+
+  if (!content && !url) { alert("Paste content or a URL first."); return; }
+
+  const resultDiv = document.getElementById("inbox-result");
+  const resultTitle = document.getElementById("inbox-result-title");
+  const resultBody = document.getElementById("inbox-result-body");
+  resultDiv.style.display = "";
+  resultTitle.textContent = "Processing… (AI extracting action items)";
+  resultBody.innerHTML = '<div class="loading">This may take 10-30 seconds depending on document size.</div>';
+
+  const submitBtn = document.getElementById("inbox-submit");
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Processing…";
+
+  try {
+    const r = await fetch("/api/inbox", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: activeType, content, url, title }),
+    });
+    const data = await r.json();
+
+    if (!r.ok) {
+      resultTitle.textContent = "Error";
+      resultBody.innerHTML = `<pre class="result-pane">${escapeHtml(data.error || JSON.stringify(data))}</pre>`;
+      return;
+    }
+
+    if (data.issues_created === 0) {
+      resultTitle.textContent = "No actionable items found";
+      resultBody.innerHTML = `<p>AI could not extract tasks from this content. Try pasting with clearer bullet points or numbered action items.</p>`;
+      return;
+    }
+
+    resultTitle.textContent = `✅ ${data.issues_created} issues created from "${escapeHtml(title)}"`;
+    const issueHtml = (data.issues || [])
+      .filter((i) => i.number)
+      .map((i) => `
+        <a href="${i.url}" target="_blank" class="inbox-issue-card">
+          <span class="inbox-issue-num">#${i.number}</span>
+          <span class="inbox-issue-title">${escapeHtml(i.title)}</span>
+          <span class="inbox-issue-labels">${(i.labels || []).map((l) => `<span class="label-tag">${escapeHtml(l)}</span>`).join(" ")}</span>
+        </a>`)
+      .join("");
+
+    resultBody.innerHTML = `
+      <p class="hint">Method: ${data.ai_used ? "AI extraction" : "Basic extraction (no AI key — add Gemini key for better results)"}. Auto-assign fires within 5 sec for each issue.</p>
+      <div class="inbox-issues-list">${issueHtml}</div>`;
+
+    // Refresh dashboard data after a delay (let webhooks fire)
+    setTimeout(loadGithub, 5000);
+  } catch (e) {
+    resultTitle.textContent = "Error";
+    resultBody.innerHTML = `<pre class="result-pane">${escapeHtml(e.message)}</pre>`;
+  } finally {
+    submitBtn.disabled = false;
+    submitBtn.textContent = "📥 Process & Create Issues";
+  }
+});
+
 document.getElementById("dry-btn").addEventListener("click", async () => {
   const num = document.getElementById("dry-issue").value;
   if (!num) return;
@@ -446,6 +522,7 @@ document.querySelectorAll(".tab").forEach((t) =>
     document.getElementById(`tab-${t.dataset.tab}`).classList.add("active");
     if (t.dataset.tab === "overview") loadOverview();
     if (t.dataset.tab === "performance") loadPerformance();
+    if (t.dataset.tab === "kanban") loadGithub();
     if (t.dataset.tab === "sheets") loadSheets();
     if (t.dataset.tab === "discord") loadDiscord();
     if (t.dataset.tab === "assign") loadAssign();
