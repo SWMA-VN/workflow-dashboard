@@ -82,12 +82,14 @@ For each action item, output EXACTLY this JSON format (array of objects):
   }
 ]
 
-Rules:
+CRITICAL RULES:
+- ALL titles and descriptions MUST be in ENGLISH. If the source text is Vietnamese or any other language, TRANSLATE to English.
+- Title format: imperative, specific (not "do the thing" but "Add payment validation to checkout form")
+- Body: full clear description with acceptance criteria so a developer can work on it without asking questions. Include: what to build, expected behavior, edge cases if any.
 - Only include ACTIONABLE items (not observations or questions)
 - Each item should be assignable to ONE developer
 - If no clear action items exist, return an empty array []
 - Maximum 10 items per document
-- Make titles specific (not "do the thing" but "Add payment validation to checkout form")
 - Labels should be the best skill category for routing to the right dev
 
 Return ONLY the JSON array, no markdown, no explanation.`;
