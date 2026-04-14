@@ -90,21 +90,66 @@ async function clearStatusLabels(repo, issueNumber) {
   }
 }
 
-// Parse issue numbers from PR — checks body, title, AND branch name.
-// Branch name like "35-backend-api" or "feature/42-payment" → extracts issue number.
-// This means devs don't need to write "Closes #42" — just naming the branch is enough.
-function parseIssueRefs(pr) {
+// Parse issue numbers from PR — fully automatic, zero dev effort.
+// Priority:
+//   1. Explicit refs in body/title: "Closes #42", "#42"
+//   2. Branch name: "35-backend-api" → issue #35
+//   3. Fallback: find open issues assigned to PR author → auto-match
+async function parseIssueRefs(pr, repo) {
   const text = `${pr.title || ""} ${pr.body || ""}`;
   const matches = [...text.matchAll(/(?:closes?|fixes?|resolves?|refs?)?\s*#(\d+)/gi)];
   const nums = new Set(matches.map((m) => parseInt(m[1])));
 
-  // Also extract from branch name: "35-backend-api", "feature/42-payment", "TC-042-fix"
+  // Branch name: "35-backend-api", "feature/42-payment"
   const branch = pr.head?.ref || "";
   const branchMatch = branch.match(/(?:^|[\/\-_])(\d+)(?:[\/\-_]|$)/);
   if (branchMatch) nums.add(parseInt(branchMatch[1]));
 
-  // Filter out the PR's own number
-  return [...nums].filter((n) => n !== pr.number && n > 0);
+  // Filter out PR's own number
+  const explicit = [...nums].filter((n) => n !== pr.number && n > 0);
+  if (explicit.length) return explicit;
+
+  // === FALLBACK: auto-detect from dev's assigned issues ===
+  // If dev didn't reference any issue, find their open in-progress issues
+  const author = pr.user?.login;
+  if (!author || !repo) return [];
+
+  try {
+    const r = await fetch(`${GH_API}/repos/${repo}/issues?state=open&assignee=${author}&per_page=20`, {
+      headers: ghHeaders(),
+    });
+    if (!r.ok) return [];
+    const issues = (await r.json()).filter((i) => !i.pull_request);
+
+    if (issues.length === 0) return [];
+
+    // If dev has exactly 1 open issue → that's clearly what this PR is for
+    if (issues.length === 1) return [issues[0].number];
+
+    // Multiple issues: pick the one with status:in-progress label (most likely)
+    const inProgress = issues.filter((i) =>
+      (i.labels || []).some((l) => l.name === "status:in-progress")
+    );
+    if (inProgress.length === 1) return [inProgress[0].number];
+
+    // Still multiple: keyword-match PR title against issue titles
+    const prWords = (pr.title || "").toLowerCase().split(/\W+/).filter((w) => w.length > 3);
+    let bestMatch = null, bestScore = 0;
+    for (const issue of (inProgress.length ? inProgress : issues)) {
+      const issueWords = issue.title.toLowerCase().split(/\W+/).filter((w) => w.length > 3);
+      const score = prWords.filter((w) => issueWords.includes(w)).length;
+      if (score > bestScore) { bestScore = score; bestMatch = issue; }
+    }
+    if (bestMatch && bestScore > 0) return [bestMatch.number];
+
+    // Last resort: pick the most recently updated in-progress issue
+    const sorted = (inProgress.length ? inProgress : issues)
+      .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+    return [sorted[0].number];
+  } catch (e) {
+    console.error("[webhook] Auto-detect fallback error:", e.message);
+    return [];
+  }
 }
 
 export default async function handler(req, res) {
@@ -199,7 +244,7 @@ export default async function handler(req, res) {
   // ========================================
   if (event === "pull_request") {
     const pr = body.pull_request;
-    const referencedIssues = parseIssueRefs(pr);
+    const referencedIssues = await parseIssueRefs(pr, repo);
 
     // --- PR opened / ready for review: move referenced issues to In Review ---
     if (body.action === "opened" || body.action === "ready_for_review") {
@@ -245,7 +290,8 @@ export default async function handler(req, res) {
 
     // --- PR converted to draft: move back to In Progress ---
     if (body.action === "converted_to_draft") {
-      for (const issueNum of referencedIssues) {
+      const draftRefs = await parseIssueRefs(pr, repo);
+      for (const issueNum of draftRefs) {
         await setStatusLabel(repo, issueNum, "status:in-progress");
       }
     }
