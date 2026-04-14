@@ -60,6 +60,33 @@ async function fetchContent(url) {
   return null;
 }
 
+// Fetch all org repos with descriptions (for AI routing)
+async function fetchOrgRepos() {
+  const org = process.env.GITHUB_ORG;
+  if (!org) return [];
+  try {
+    const r = await fetch(`${GH_API}/orgs/${org}/repos?per_page=100&sort=updated&type=all`, {
+      headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}`, Accept: "application/vnd.github+json" },
+    });
+    if (!r.ok) return [];
+    const repos = await r.json();
+    // Only include repos updated in last 90 days
+    const cutoff = Date.now() - 90 * 86400000;
+    return repos
+      .filter((r) => new Date(r.updated_at).getTime() > cutoff)
+      .map((r) => ({
+        full_name: r.full_name,
+        name: r.name,
+        description: r.description || "",
+        language: r.language || "",
+        topics: r.topics || [],
+      }));
+  } catch (e) {
+    console.error("[inbox] fetchOrgRepos error:", e.message);
+    return [];
+  }
+}
+
 // Fetch all existing issues (open + recently closed) to detect duplicates
 async function fetchExistingIssues() {
   const repo = process.env.GITHUB_REPO;
@@ -70,15 +97,16 @@ async function fetchExistingIssues() {
   };
   const issues = [];
   try {
-    // Open issues
     const target = org ? `/search/issues?q=org:${org}+is:issue+is:open&per_page=100` : `/repos/${repo}/issues?state=open&per_page=100`;
     const r1 = await fetch(`${GH_API}${target}`, { headers });
     if (r1.ok) {
       const d = await r1.json();
       const items = d.items || d;
-      for (const i of items) if (!i.pull_request) issues.push({ number: i.number, title: i.title, state: "open" });
+      for (const i of items) if (!i.pull_request) {
+        const repoName = i.repository_url ? i.repository_url.replace(`${GH_API}/repos/`, "") : repo;
+        issues.push({ number: i.number, title: i.title, state: "open", repo: repoName });
+      }
     }
-    // Recently closed (last 30 days)
     const since = new Date(Date.now() - 30 * 86400000).toISOString();
     const closedTarget = org
       ? `/search/issues?q=org:${org}+is:issue+is:closed+updated:>=${since.slice(0,10)}&per_page=100`
@@ -87,7 +115,10 @@ async function fetchExistingIssues() {
     if (r2.ok) {
       const d = await r2.json();
       const items = d.items || d;
-      for (const i of items) if (!i.pull_request) issues.push({ number: i.number, title: i.title, state: "closed" });
+      for (const i of items) if (!i.pull_request) {
+        const repoName = i.repository_url ? i.repository_url.replace(`${GH_API}/repos/`, "") : repo;
+        issues.push({ number: i.number, title: i.title, state: "closed", repo: repoName });
+      }
     }
   } catch (e) {
     console.error("[inbox] Error fetching existing issues:", e.message);
@@ -97,9 +128,13 @@ async function fetchExistingIssues() {
 
 // Extract action items via AI, returns [{title, body, labels, priority}]
 async function extractActionItems(content, title, aiAvailable) {
-  // Fetch existing issues for deduplication
+  // Fetch existing issues + org repos for AI routing
   const existing = await fetchExistingIssues();
-  const existingList = existing.map((i) => `#${i.number} [${i.state.toUpperCase()}] ${i.title}`).join("\n");
+  const existingList = existing.map((i) => `#${i.number} [${i.state.toUpperCase()}] [${i.repo}] ${i.title}`).join("\n");
+
+  const orgRepos = await fetchOrgRepos();
+  const repoList = orgRepos.map((r) => `${r.full_name} — ${r.description} (${r.language})`).join("\n");
+  const defaultRepo = process.env.GITHUB_REPO || `${process.env.GITHUB_ORG}/workflow-dashboard`;
 
   if (aiAvailable) {
     const prompt = `You are a PM assistant. From the following document, extract ACTIONABLE tasks for a dev team.
@@ -108,37 +143,53 @@ Document title: "${title}"
 
 Document content:
 ---
-${content.slice(0, 18000)}
+${content.slice(0, 16000)}
 ---
 
-EXISTING ISSUES IN THE SYSTEM (do NOT create duplicates of these):
+EXISTING ISSUES IN THE SYSTEM (do NOT create duplicates):
 ---
 ${existingList || "(no existing issues)"}
 ---
 
-For each NEW action item that does NOT already exist above, output EXACTLY this JSON format (array of objects):
+ORGANIZATION REPOSITORIES (route each task to the correct one):
+---
+${repoList || `${defaultRepo} — default`}
+---
+
+For each NEW action item, output EXACTLY this JSON format:
 [
   {
-    "title": "Short task title (imperative, like a GitHub issue title)",
-    "body": "Description with acceptance criteria. 2-3 sentences max.",
-    "labels": ["one-of: frontend, backend, mobile, payment, qa, devops, integration"],
-    "priority": "P0 or P1 or P2"
+    "title": "Short task title (imperative, English)",
+    "body": "Full description with acceptance criteria. What to build, expected behavior, edge cases.",
+    "labels": ["skill label: frontend, backend, mobile, payment, qa, devops, integration"],
+    "priority": "P0 or P1 or P2",
+    "repo": "SWMA-VN/repo-name"
   }
 ]
 
-CRITICAL RULES:
-- SKIP any task that is already covered by an existing issue above (open or closed). Use semantic matching, not just exact title match. For example, if existing has "Fix HitPay checkout bug" and doc says "resolve payment flow issue", that's the SAME task — skip it.
-- SKIP any task that is clearly already completed (existing issue is CLOSED).
-- ALL titles and descriptions MUST be in ENGLISH. If the source text is Vietnamese or any other language, TRANSLATE to English.
-- Title format: imperative, specific (not "do the thing" but "Add payment validation to checkout form")
-- Body: full clear description with acceptance criteria so a developer can work on it without asking questions. Include: what to build, expected behavior, edge cases if any.
-- Only include ACTIONABLE items (not observations or questions)
-- Each item should be assignable to ONE developer
-- If ALL items already exist or are completed, return an empty array []
-- Maximum 10 items per document
-- Labels should be the best skill category for routing to the right dev
+REPO ROUTING RULES:
+- Analyze each task and pick the MOST RELEVANT repository from the list above.
+- Match by: project name, technology, feature area, description.
+- Examples:
+  - Enrollment form task → SWMA-VN/swma-enrollment
+  - Mobile app task → SWMA-VN/swma-mobile
+  - Medusa e-commerce task → SWMA-VN/swma-medusajs-server (backend) or swma-medusajs-storefront (frontend)
+  - AI chatbot / CRM task → SWMA-VN/ai-success-2.0
+  - Health / PSAIM task → SWMA-VN/psaim or SWMA-VN/PSAIM-Plans
+  - Warehouse task → SWMA-VN/swm-warehouse
+  - Shopware task → SWMA-VN/swma-sw
+  - Dashboard/workflow task → SWMA-VN/workflow-dashboard
+  - If unclear, use "${defaultRepo}"
 
-Return ONLY the JSON array, no markdown, no explanation.`;
+CRITICAL RULES:
+- SKIP tasks already covered by existing issues (semantic matching).
+- ALL titles and descriptions MUST be in ENGLISH. Translate Vietnamese.
+- Title: imperative, specific. Body: full acceptance criteria.
+- Only ACTIONABLE items (not observations or questions).
+- One developer per item. Max 10 items.
+- If ALL items already exist, return empty array [].
+
+Return ONLY the JSON array.`;
 
     const raw = await aiSummarize(prompt, { maxTokens: 3000 });
     try {
@@ -272,18 +323,27 @@ export default async function handler(req, res) {
       });
     }
 
-    // Step 3: Create GitHub issues
-    const repo = process.env.GITHUB_REPO;
-    const org = process.env.GITHUB_ORG;
-    const targetRepo = repo || (org ? `${org}/workflow-dashboard` : null);
-
-    if (!targetRepo) {
-      return res.status(500).json({ error: "No GITHUB_REPO or GITHUB_ORG configured" });
-    }
+    // Step 3: Create GitHub issues (each in AI-selected repo)
+    const fallbackRepo = process.env.GITHUB_REPO || `${process.env.GITHUB_ORG || "SWMA-VN"}/workflow-dashboard`;
+    const validRepoNames = new Set(orgRepos.map((r) => r.full_name));
 
     const created = [];
     for (const item of items) {
-      const issueBody = `${item.body || ""}\n\n---\n📥 **Auto-created from Inbox**\n**Source document:** ${title}\n**Priority:** ${item.priority || "P1"}\n**Labels:** ${(item.labels || []).join(", ") || "none"}\n**Source URL:** ${url || "_pasted text_"}`;
+      // Validate AI-selected repo exists; fallback if not
+      let targetRepo = item.repo || fallbackRepo;
+      if (!validRepoNames.has(targetRepo) && validRepoNames.size > 0) {
+        // Try with org prefix
+        const org = process.env.GITHUB_ORG;
+        if (org && validRepoNames.has(`${org}/${targetRepo}`)) {
+          targetRepo = `${org}/${targetRepo}`;
+        } else if (org && validRepoNames.has(`${org}/${targetRepo.split("/").pop()}`)) {
+          targetRepo = `${org}/${targetRepo.split("/").pop()}`;
+        } else {
+          targetRepo = fallbackRepo;
+        }
+      }
+
+      const issueBody = `${item.body || ""}\n\n---\n**Auto-created from Inbox**\n**Source:** ${title}\n**Priority:** ${item.priority || "P1"}\n**Repo:** ${targetRepo}\n**Source URL:** ${url || "_pasted text_"}`;
 
       const labels = [...(item.labels || [])];
       if (item.priority) labels.push(item.priority.toLowerCase());
@@ -299,10 +359,11 @@ export default async function handler(req, res) {
           number: issue.number,
           title: issue.title,
           url: issue.html_url,
+          repo: targetRepo,
           labels,
         });
       } catch (e) {
-        created.push({ error: e.message, title: item.title });
+        created.push({ error: e.message, title: item.title, repo: targetRepo });
       }
     }
 
@@ -312,7 +373,7 @@ export default async function handler(req, res) {
     let trackingIssue = null;
     if (successCount > 0) {
       const issueLinks = created.filter((c) => c.number)
-        .map((c) => `- [x] #${c.number} — ${c.title} (${(c.labels || []).join(", ")})`).join("\n");
+        .map((c) => `- [x] ${c.repo}#${c.number} — ${c.title} (${(c.labels || []).join(", ")})`).join("\n");
 
       const contentPreview = text.slice(0, 1500).replace(/`/g, "'");
       const now = new Date().toISOString();
@@ -367,7 +428,7 @@ _Auto-generated by PM Command Center Inbox_`;
     // Step 5: Discord notification
     const issueList = created
       .filter((c) => c.number)
-      .map((c) => `• [#${c.number}](${c.url}) ${c.title}`)
+      .map((c) => `- [#${c.number}](${c.url}) ${c.title} → \`${(c.repo || "").split("/").pop()}\``)
       .join("\n");
 
     await postDiscord({
