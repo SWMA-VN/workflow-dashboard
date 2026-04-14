@@ -181,8 +181,9 @@ export default async function handler(req, res) {
     const issue = body.issue;
     const issueNum = issue.number;
 
-    // --- New issue: auto-assign ---
-    if (body.action === "opened" && (issue.assignees || []).length === 0) {
+    // --- New issue: auto-assign (skip log/history issues) ---
+    const isLog = (issue.labels || []).some((l) => l.name === "inbox-history") || (issue.title || "").startsWith("[INBOX-LOG]");
+    if (body.action === "opened" && (issue.assignees || []).length === 0 && !isLog) {
       try {
         const result = await assignAndAnnounce(issue);
         if (result.ok) {

@@ -16,8 +16,18 @@ export default async function handler(req, res) {
     }
 
     const openIssues = await listIssues({ state: "open" });
-    const realIssues = openIssues.filter((i) => !i.pull_request);
+    // Filter out PRs and inbox-history logs (logs are not tasks)
+    const realIssues = openIssues.filter((i) => !i.pull_request && !(i.labels || []).some((l) => l.name === "inbox-history"));
     const openPrs = openIssues.filter((i) => i.pull_request);
+
+    // Fetch recently closed issues (last 7 days) for Done column
+    const since7d = new Date(Date.now() - 7 * 86400000).toISOString();
+    const closedIssues = await listIssues({ state: "closed", since: since7d });
+    const recentlyClosed = closedIssues.filter((i) =>
+      !i.pull_request &&
+      !(i.labels || []).some((l) => l.name === "inbox-history") &&
+      i.closed_at && new Date(i.closed_at).getTime() > Date.now() - 7 * 86400000
+    );
     const m = await getMetrics({ days: 30 });
 
     const cols = Object.fromEntries(COLUMNS.map((c) => [c, []]));
@@ -55,7 +65,11 @@ export default async function handler(req, res) {
       });
     }
 
-    for (const pr of m.prs_merged.slice(0, 20)) {
+    // Done: recently closed issues + merged PRs
+    for (const issue of recentlyClosed) {
+      cols["Done"].push(simplifyIssue(issue));
+    }
+    for (const pr of m.prs_merged.slice(0, 10)) {
       cols["Done"].push({
         number: pr.number,
         title: `PR: ${pr.title}`,
