@@ -2,6 +2,7 @@
 // All data fetched via /api/* (server-side, secrets stay safe).
 
 const REFRESH_MS = 10_000; // 10 sec — near real-time
+let filterDays = parseInt(localStorage.getItem("filterDays")) || 7;
 
 // ===== Theme toggle =====
 const themeToggle = document.getElementById("theme-toggle");
@@ -127,9 +128,9 @@ function renderPeople(data) {
 async function loadGithub() {
   const refreshBtn = document.getElementById("refresh-btn");
   refreshBtn.classList.add("spinning");
-  document.getElementById("last-updated").textContent = "loading…";
+  document.getElementById("last-updated").textContent = "loading...";
   try {
-    const data = await fetchJson("/api/github");
+    const data = await fetchJson(`/api/github?days=${filterDays}`);
     document.getElementById("repo-name").textContent = data.repo;
     document.getElementById("repo-link").href = `https://github.com/${data.repo}`;
     renderKanban(data);
@@ -580,6 +581,22 @@ window.addEventListener("hashchange", () => switchTab(window.location.hash.repla
 function initFromHash() { switchTab(window.location.hash.replace("#", "") || "overview"); }
 
 document.getElementById("refresh-btn").addEventListener("click", loadGithub);
+
+// Time filter buttons
+document.querySelectorAll("#time-filter .filter-btn").forEach((btn) => {
+  // Set active state on load
+  if (parseInt(btn.dataset.days) === filterDays) {
+    document.querySelectorAll("#time-filter .filter-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+  }
+  btn.addEventListener("click", () => {
+    filterDays = parseInt(btn.dataset.days);
+    localStorage.setItem("filterDays", filterDays);
+    document.querySelectorAll("#time-filter .filter-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    loadGithub();
+  });
+});
 
 // Keyboard shortcut: R to refresh
 document.addEventListener("keydown", (e) => {

@@ -11,22 +11,24 @@ export default async function handler(req, res) {
     if (!process.env.GITHUB_TOKEN || !process.env.GITHUB_REPO) {
       return res.status(500).json({
         error: "Missing GITHUB_TOKEN or GITHUB_REPO env var",
-        hint: "Set them in Vercel Dashboard → Settings → Environment Variables",
       });
     }
 
+    // Time filter: ?days=7 (default), ?days=30, ?days=90, ?days=365, ?days=0 (all time)
+    const daysParam = parseInt(req.query?.days) || 7;
+    const doneDays = daysParam === 0 ? 365 * 3 : daysParam; // 0 = all time (max 3 years)
+
     const openIssues = await listIssues({ state: "open" });
-    // Filter out PRs and inbox-history logs (logs are not tasks)
-    const realIssues = openIssues.filter((i) => !i.pull_request && !(i.labels || []).some((l) => l.name === "inbox-history"));
+    const isLog = (i) => (i.labels || []).some((l) => l.name === "inbox-history");
+    const realIssues = openIssues.filter((i) => !i.pull_request && !isLog(i));
     const openPrs = openIssues.filter((i) => i.pull_request);
 
-    // Fetch recently closed issues (last 7 days) for Done column
-    const since7d = new Date(Date.now() - 7 * 86400000).toISOString();
-    const closedIssues = await listIssues({ state: "closed", since: since7d });
+    // Fetch closed issues for Done column (controlled by time filter)
+    const sinceDate = new Date(Date.now() - doneDays * 86400000).toISOString();
+    const closedIssues = await listIssues({ state: "closed", since: sinceDate });
     const recentlyClosed = closedIssues.filter((i) =>
-      !i.pull_request &&
-      !(i.labels || []).some((l) => l.name === "inbox-history") &&
-      i.closed_at && new Date(i.closed_at).getTime() > Date.now() - 7 * 86400000
+      !i.pull_request && !isLog(i) &&
+      i.closed_at && new Date(i.closed_at).getTime() > Date.now() - doneDays * 86400000
     );
     const m = await getMetrics({ days: 30 });
 
@@ -83,7 +85,8 @@ export default async function handler(req, res) {
 
     res.json({
       generated_at: new Date().toISOString(),
-      repo: process.env.GITHUB_REPO,
+      repo: process.env.GITHUB_REPO || process.env.GITHUB_ORG,
+      filter_days: daysParam,
       metrics: {
         velocity_30d: m.prs_merged.length,
         in_progress: m.in_progress.length,
