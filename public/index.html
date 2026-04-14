@@ -5,17 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#1e40af" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0a0e1a" media="(prefers-color-scheme: dark)">
-<title>PM Command Center — Live</title>
+<title>PM Command Center</title>
 
-<!-- Inter font -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
 <link rel="stylesheet" href="style.css">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ctext y='14' font-size='14'%3E📊%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='14' height='14' x='1' y='1' rx='3' fill='%232563eb'/%3E%3Ctext x='8' y='12' text-anchor='middle' fill='white' font-size='10' font-weight='bold'%3EP%3C/text%3E%3C/svg%3E">
 
-<!-- Anti-flash: apply theme before paint -->
 <script>
   (function() {
     var t = localStorage.getItem('theme');
@@ -28,83 +26,71 @@
 
 <header>
   <div class="title">
-    <span class="logo">📊</span>
-    <h1>PM Command Center</h1>
-    <span class="repo-badge" id="repo-name">connecting…</span>
-    <span class="badge live"><span class="dot"></span> LIVE</span>
+    <div class="logo-mark">P</div>
+    <div class="title-text">
+      <h1>Command Center</h1>
+      <span class="subtitle" id="repo-name">connecting...</span>
+    </div>
+    <span class="badge live"><span class="dot"></span>Live</span>
   </div>
   <div class="header-actions">
-    <span class="last-updated" id="last-updated">—</span>
-
+    <span class="last-updated" id="last-updated"></span>
     <button id="theme-toggle" class="btn-icon" title="Toggle theme">
-      <svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-      </svg>
-      <svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="4"/>
-        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>
-      </svg>
+      <svg class="theme-icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg class="theme-icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
     </button>
-
-    <button id="refresh-btn" class="btn-primary" title="Refresh data">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-        <polyline points="23 4 23 10 17 10"/>
-        <polyline points="1 20 1 14 7 14"/>
-        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-      </svg>
-      Refresh
+    <button id="refresh-btn" class="btn-primary" title="Refresh (R)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+      <span class="btn-label">Refresh</span>
     </button>
   </div>
 </header>
 
-<!-- metrics -->
+<!-- Metrics -->
 <section class="metrics">
-  <div class="metric success"><div class="metric-value" id="m-velocity">—</div><div class="metric-label">Velocity (30d)</div></div>
-  <div class="metric"><div class="metric-value" id="m-progress">—</div><div class="metric-label">In Progress</div></div>
-  <div class="metric"><div class="metric-value" id="m-review">—</div><div class="metric-label">In Review</div></div>
-  <div class="metric danger"><div class="metric-value" id="m-blocked">—</div><div class="metric-label">Blockers</div></div>
-  <div class="metric success"><div class="metric-value" id="m-merged">—</div><div class="metric-label">PRs Merged (30d)</div></div>
-  <div class="metric"><div class="metric-value" id="m-commits">—</div><div class="metric-label">Commits (30d)</div></div>
+  <div class="metric accent"><div class="metric-value" id="m-velocity">--</div><div class="metric-label">Velocity (30d)</div></div>
+  <div class="metric"><div class="metric-value" id="m-progress">--</div><div class="metric-label">In Progress</div></div>
+  <div class="metric"><div class="metric-value" id="m-review">--</div><div class="metric-label">In Review</div></div>
+  <div class="metric danger"><div class="metric-value" id="m-blocked">--</div><div class="metric-label">Blockers</div></div>
+  <div class="metric success"><div class="metric-value" id="m-merged">--</div><div class="metric-label">Merged (30d)</div></div>
+  <div class="metric"><div class="metric-value" id="m-commits">--</div><div class="metric-label">Commits (30d)</div></div>
 </section>
 
-<!-- tabs -->
-<nav class="tabs">
-  <button class="tab active" data-tab="overview">📊 Overview</button>
-  <button class="tab" data-tab="kanban">📋 Kanban</button>
-  <button class="tab" data-tab="performance">📈 Performance</button>
-  <button class="tab" data-tab="people">👥 People</button>
-  <button class="tab" data-tab="sheets">📑 Sheets</button>
-  <button class="tab" data-tab="discord">💬 Discord</button>
-  <button class="tab" data-tab="inbox">📥 Inbox</button>
-  <button class="tab" data-tab="assign">🤖 Auto-Assign</button>
+<!-- Tabs with slug routing -->
+<nav class="tabs" id="tabs">
+  <a href="#overview" class="tab active" data-tab="overview">Overview</a>
+  <a href="#kanban" class="tab" data-tab="kanban">Kanban</a>
+  <a href="#performance" class="tab" data-tab="performance">Performance</a>
+  <a href="#people" class="tab" data-tab="people">People</a>
+  <a href="#sheets" class="tab" data-tab="sheets">Sheets</a>
+  <a href="#discord" class="tab" data-tab="discord">Discord</a>
+  <a href="#inbox" class="tab" data-tab="inbox">Inbox</a>
+  <a href="#assign" class="tab" data-tab="assign">Assign</a>
 </nav>
 
-<!-- OVERVIEW (default) -->
+<!-- OVERVIEW -->
 <section id="tab-overview" class="tab-panel active">
   <div class="overview-grid">
-    <!-- WIP Section -->
     <div class="card-block wip-block">
-      <h3>🎯 WIP per Person — current work in progress</h3>
-      <p class="hint">Green = room for more · Yellow = busy · Red = at limit (don't assign more)</p>
-      <div class="wip-summary">
-        <div class="wip-stat"><span class="wip-stat-val" id="wip-team-load">—</span><span class="wip-stat-label">Team WIP</span></div>
-        <div class="wip-stat"><span class="wip-stat-val" id="wip-team-cap">—</span><span class="wip-stat-label">Capacity</span></div>
-        <div class="wip-stat"><span class="wip-stat-val" id="wip-team-pct">—</span><span class="wip-stat-label">Utilization</span></div>
-        <div class="wip-stat"><span class="wip-stat-val" id="wip-unassigned">—</span><span class="wip-stat-label">Unassigned</span></div>
+      <div class="card-header">
+        <h3>WIP per Person</h3>
+        <span class="card-badge">current workload</span>
       </div>
-      <div id="wip-list" class="wip-list"><div class="loading">Loading WIP…</div></div>
+      <div class="wip-summary">
+        <div class="wip-stat"><span class="wip-stat-val" id="wip-team-load">--</span><span class="wip-stat-label">Team WIP</span></div>
+        <div class="wip-stat"><span class="wip-stat-val" id="wip-team-cap">--</span><span class="wip-stat-label">Capacity</span></div>
+        <div class="wip-stat"><span class="wip-stat-val" id="wip-team-pct">--</span><span class="wip-stat-label">Utilization</span></div>
+        <div class="wip-stat"><span class="wip-stat-val" id="wip-unassigned">--</span><span class="wip-stat-label">Unassigned</span></div>
+      </div>
+      <div id="wip-list" class="wip-list"><div class="loading">Loading...</div></div>
     </div>
-
-    <!-- Velocity sparkline -->
     <div class="card-block velocity-block">
-      <h3>📈 Velocity — PRs merged per week (last 4 weeks)</h3>
-      <div id="velocity-bars" class="velocity-bars"><div class="loading">Loading…</div></div>
+      <div class="card-header"><h3>Velocity</h3><span class="card-badge">PRs merged / week</span></div>
+      <div id="velocity-bars" class="velocity-bars"><div class="loading">Loading...</div></div>
     </div>
-
-    <!-- Stale tickets -->
     <div class="card-block stale-block">
-      <h3>⏰ Stale Tickets — no activity 3+ days</h3>
-      <div id="stale-list"><div class="loading">Checking…</div></div>
+      <div class="card-header"><h3>Stale Tickets</h3><span class="card-badge">no activity 3+ days</span></div>
+      <div id="stale-list"><div class="loading">Checking...</div></div>
     </div>
   </div>
 </section>
@@ -117,31 +103,23 @@
 <!-- PERFORMANCE -->
 <section id="tab-performance" class="tab-panel">
   <div class="perf-grid">
-    <!-- Cycle time -->
     <div class="card-block">
-      <h3>⚡ Cycle Time — speed from PR open → merge</h3>
-      <p class="hint">Healthy: P50 ≤ 3 days, P90 ≤ 7 days. Higher = work piling up before merge.</p>
-      <div class="cycle-stats" id="cycle-stats"><div class="loading">Computing…</div></div>
+      <div class="card-header"><h3>Cycle Time</h3><span class="card-badge">PR open to merge</span></div>
+      <p class="hint">Healthy: P50 ≤ 3d, P90 ≤ 7d</p>
+      <div class="cycle-stats" id="cycle-stats"><div class="loading">Computing...</div></div>
     </div>
-
-    <!-- Quality -->
     <div class="card-block">
-      <h3>🐛 Quality — bug rate (last 30 days)</h3>
-      <p class="hint">Bugs filed in last 30d / PRs merged in last 30d. Good: under 10%. Warning: over 20%.</p>
-      <div class="quality-stats" id="quality-stats"><div class="loading">Computing…</div></div>
+      <div class="card-header"><h3>Quality</h3><span class="card-badge">bug rate, last 30d</span></div>
+      <p class="hint">Good: under 10%. Warning: over 20%.</p>
+      <div class="quality-stats" id="quality-stats"><div class="loading">Computing...</div></div>
     </div>
-
-    <!-- Throughput -->
     <div class="card-block">
-      <h3>🚀 Throughput per dev — PRs merged in last 30 days</h3>
-      <div id="throughput-list"><div class="loading">Loading…</div></div>
+      <div class="card-header"><h3>Throughput</h3><span class="card-badge">PRs merged per dev, 30d</span></div>
+      <div id="throughput-list"><div class="loading">Loading...</div></div>
     </div>
-
-    <!-- Activity Heatmap -->
     <div class="card-block">
-      <h3>🔥 Activity Heatmap — commits per dev per day (last 30 days)</h3>
-      <p class="hint">Spot inactive devs and weekend warriors (burnout risk).</p>
-      <div id="heatmap-wrap"><div class="loading">Loading…</div></div>
+      <div class="card-header"><h3>Activity</h3><span class="card-badge">commits per dev per day, 30d</span></div>
+      <div id="heatmap-wrap"><div class="loading">Loading...</div></div>
     </div>
   </div>
 </section>
@@ -154,81 +132,57 @@
 <!-- SHEETS -->
 <section id="tab-sheets" class="tab-panel">
   <div class="card-block">
-    <h3>📑 Live data from Google Sheets</h3>
-    <p class="hint">Source: <code id="sheets-source">—</code></p>
-    <div id="sheets-table-wrap"><div class="loading">Loading…</div></div>
+    <div class="card-header"><h3>Google Sheets</h3><span class="card-badge" id="sheets-source">--</span></div>
+    <div id="sheets-table-wrap"><div class="loading">Loading...</div></div>
   </div>
 </section>
 
 <!-- DISCORD -->
 <section id="tab-discord" class="tab-panel">
   <div class="card-block">
-    <h3>💬 Discord live activity</h3>
-    <p class="hint">Real-time channel feed (server widget). To enable: Discord → Server Settings → Widget → Enable + paste Server ID in env.</p>
-    <div id="discord-widget-wrap" class="loading">No DISCORD_SERVER_ID set yet.</div>
+    <div class="card-header"><h3>Discord</h3><span class="card-badge">live channel widget</span></div>
+    <p class="hint">Enable: Discord Server Settings → Widget → Enable + paste Server ID in env.</p>
+    <div id="discord-widget-wrap" class="loading">No DISCORD_SERVER_ID configured.</div>
   </div>
 </section>
 
 <!-- INBOX -->
 <section id="tab-inbox" class="tab-panel">
   <div class="card-block inbox-block">
-    <h3>📥 Inbox — Drop anything, get issues + auto-assign</h3>
-    <p class="hint">Paste a Google Sheet URL, Google Doc URL, meeting notes, spec text, or any content. AI extracts action items → creates GitHub issues → auto-assigns to the right dev.</p>
+    <div class="card-header"><h3>Inbox</h3><span class="card-badge">document → tasks → auto-assign</span></div>
+    <p class="hint">Paste any content. AI extracts action items, creates GitHub issues, and auto-assigns to the right dev.</p>
 
     <div class="inbox-form">
-      <label class="inbox-label">Title (what is this document?)
+      <label class="inbox-label">Document title
         <input type="text" id="inbox-title" placeholder="e.g. Sprint planning notes, Q2 spec, Meeting 2026-04-14" class="inbox-input">
       </label>
-
       <label class="inbox-label">Source type
         <div class="inbox-type-row">
-          <button class="inbox-type-btn active" data-type="text">📝 Paste text</button>
-          <button class="inbox-type-btn" data-type="url">🔗 Google Sheet / Doc URL</button>
+          <button class="inbox-type-btn active" data-type="text">Paste text</button>
+          <button class="inbox-type-btn" data-type="url">Sheet / Doc URL</button>
         </div>
       </label>
-
       <div id="inbox-text-input" class="inbox-field">
-        <label class="inbox-label">Paste meeting notes, spec, action items, or any text
-          <textarea id="inbox-content" rows="10" placeholder="Paste content here...&#10;&#10;Examples:&#10;- Meeting summary with bullet points&#10;- Spec with requirements&#10;- Action items from Zoom call&#10;- Copy-pasted email thread&#10;&#10;AI will extract tasks and create issues for each."></textarea>
+        <label class="inbox-label">Content
+          <textarea id="inbox-content" rows="8" placeholder="Paste meeting notes, specs, requirements, email threads, transcripts..."></textarea>
         </label>
       </div>
-
       <div id="inbox-url-input" class="inbox-field" style="display:none">
-        <label class="inbox-label">Google Sheet or Doc URL
-          <input type="url" id="inbox-url" placeholder="https://docs.google.com/spreadsheets/d/... or https://docs.google.com/document/d/..." class="inbox-input">
+        <label class="inbox-label">URL
+          <input type="url" id="inbox-url" placeholder="https://docs.google.com/spreadsheets/d/..." class="inbox-input">
         </label>
-        <p class="hint">Sheet must be "anyone with link can view". Google Docs must be published or viewable.</p>
       </div>
-
-      <button id="inbox-submit" class="inbox-submit-btn">📥 Process & Create Issues</button>
+      <button id="inbox-submit" class="inbox-submit-btn">Process and Create Issues</button>
     </div>
 
     <div id="inbox-result" class="inbox-result" style="display:none">
-      <h4 id="inbox-result-title">Processing…</h4>
+      <h4 id="inbox-result-title">Processing...</h4>
       <div id="inbox-result-body"></div>
     </div>
 
     <div class="inbox-history-log">
-      <h4>📜 Submission History — all documents processed</h4>
-      <p class="hint">Every Inbox submission is stored permanently. Click any entry to see full details + generated tasks.</p>
-      <div id="inbox-history-list"><div class="loading">Loading history…</div></div>
-    </div>
-
-    <div class="inbox-history" style="margin-top:24px">
-      <h4>Supported inputs</h4>
-      <table class="sheets-table" style="margin-top:8px">
-        <thead><tr><th>Input type</th><th>How to use</th><th>What happens</th></tr></thead>
-        <tbody>
-          <tr><td>📝 Meeting notes</td><td>Paste text with bullet points</td><td>AI extracts action items → issues</td></tr>
-          <tr><td>📊 Google Sheet</td><td>Paste sheet URL</td><td>Reads CSV → AI finds tasks → issues</td></tr>
-          <tr><td>📄 Google Doc</td><td>Paste doc URL</td><td>Reads text → AI extracts → issues</td></tr>
-          <tr><td>📋 Spec / requirements</td><td>Paste text or URL</td><td>AI splits into dev tasks → issues</td></tr>
-          <tr><td>✉️ Email thread</td><td>Paste email body</td><td>AI finds action items → issues</td></tr>
-          <tr><td>🎥 Zoom summary</td><td>Paste transcript or Otter.ai text</td><td>AI extracts decisions + tasks → issues</td></tr>
-          <tr><td>📈 PPT text</td><td>Paste slide content</td><td>AI finds tasks from slides → issues</td></tr>
-        </tbody>
-      </table>
-      <p class="hint" style="margin-top:8px">Every created issue is auto-assigned via the engine (webhook fires within seconds). All issues get the <code>inbox</code> label so you can filter them.</p>
+      <div class="card-header" style="margin-bottom:8px"><h4>Submission History</h4><span class="card-badge">permanent log</span></div>
+      <div id="inbox-history-list"><div class="loading">Loading...</div></div>
     </div>
   </div>
 </section>
@@ -236,32 +190,31 @@
 <!-- ASSIGN -->
 <section id="tab-assign" class="tab-panel">
   <div class="card-block">
-    <h3>🤖 Auto-assignment Engine</h3>
-    <p>How it works: every new GitHub issue triggers <code>POST /api/webhook</code> → engine analyzes title/body/labels for skill keywords → picks least-loaded dev who matches.</p>
+    <div class="card-header"><h3>Auto-Assign Engine</h3><span class="card-badge">skill + workload routing</span></div>
+    <p class="hint">Every new issue is auto-assigned. Test or override below.</p>
 
-    <h4>Test the algorithm (dry-run, no actual assignment)</h4>
+    <h4>Dry run (no actual assignment)</h4>
     <div class="form-row">
-      <input type="number" id="dry-issue" placeholder="Issue number, e.g. 42">
-      <button id="dry-btn" class="btn-primary">Test pick</button>
+      <input type="number" id="dry-issue" placeholder="Issue #">
+      <button id="dry-btn" class="btn-primary">Test</button>
     </div>
-    <pre id="dry-result" class="result-pane">—</pre>
+    <pre id="dry-result" class="result-pane">--</pre>
 
-    <h4>Force-assign now</h4>
+    <h4>Force assign</h4>
     <div class="form-row">
-      <input type="number" id="real-issue" placeholder="Issue number, e.g. 42">
-      <button id="real-btn" class="btn-secondary">Assign for real</button>
+      <input type="number" id="real-issue" placeholder="Issue #">
+      <button id="real-btn" class="btn-secondary">Assign</button>
     </div>
-    <pre id="real-result" class="result-pane">—</pre>
+    <pre id="real-result" class="result-pane">--</pre>
 
-    <h4>Current team config</h4>
-    <pre id="team-config" class="result-pane">Loading…</pre>
-    <p class="hint">To change: edit <code>TEAM_CONFIG</code> env var in Vercel Dashboard → Settings → Environment Variables.</p>
+    <h4>Team config</h4>
+    <pre id="team-config" class="result-pane">Loading...</pre>
   </div>
 </section>
 
 <footer>
-  <span>PM Command Center · auto-refresh every 30 sec · <a id="repo-link" href="#" target="_blank">repo</a></span>
-  <span>Hosted free on Vercel · v1.1</span>
+  <span>PM Command Center · 10s refresh · <a id="repo-link" href="#" target="_blank">GitHub</a></span>
+  <span>Vercel · v2.0</span>
 </footer>
 
 <script src="app.js"></script>

@@ -547,22 +547,37 @@ function renderHeatmap(data) {
   wrap.innerHTML = html;
 }
 
-// Tabs
+// ======= HASH ROUTING =======
+const TAB_LOADERS = {
+  overview: loadOverview,
+  kanban: loadGithub,
+  performance: loadPerformance,
+  sheets: loadSheets,
+  discord: loadDiscord,
+  assign: loadAssign,
+  inbox: loadInboxHistory,
+};
+
+function switchTab(slug) {
+  if (!slug || !document.getElementById(`tab-${slug}`)) slug = "overview";
+  document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
+  document.querySelectorAll(".tab-panel").forEach((x) => x.classList.remove("active"));
+  const tabBtn = document.querySelector(`.tab[data-tab="${slug}"]`);
+  if (tabBtn) tabBtn.classList.add("active");
+  const panel = document.getElementById(`tab-${slug}`);
+  if (panel) panel.classList.add("active");
+  if (TAB_LOADERS[slug]) TAB_LOADERS[slug]();
+  document.title = `${slug.charAt(0).toUpperCase() + slug.slice(1)} — PM Command Center`;
+}
+
 document.querySelectorAll(".tab").forEach((t) =>
-  t.addEventListener("click", () => {
-    document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
-    document.querySelectorAll(".tab-panel").forEach((x) => x.classList.remove("active"));
-    t.classList.add("active");
-    document.getElementById(`tab-${t.dataset.tab}`).classList.add("active");
-    if (t.dataset.tab === "overview") loadOverview();
-    if (t.dataset.tab === "performance") loadPerformance();
-    if (t.dataset.tab === "kanban") loadGithub();
-    if (t.dataset.tab === "inbox") loadInboxHistory();
-    if (t.dataset.tab === "sheets") loadSheets();
-    if (t.dataset.tab === "discord") loadDiscord();
-    if (t.dataset.tab === "assign") loadAssign();
+  t.addEventListener("click", (e) => {
+    e.preventDefault();
+    window.location.hash = t.dataset.tab;
   })
 );
+window.addEventListener("hashchange", () => switchTab(window.location.hash.replace("#", "")));
+function initFromHash() { switchTab(window.location.hash.replace("#", "") || "overview"); }
 
 document.getElementById("refresh-btn").addEventListener("click", loadGithub);
 
@@ -575,5 +590,9 @@ document.addEventListener("keydown", (e) => {
 
 // Init
 loadGithub();
-loadOverview();
-setInterval(() => { loadGithub(); loadOverview(); }, REFRESH_MS);
+initFromHash();
+setInterval(() => {
+  loadGithub();
+  const slug = window.location.hash.replace("#", "") || "overview";
+  if (TAB_LOADERS[slug]) TAB_LOADERS[slug]();
+}, REFRESH_MS);

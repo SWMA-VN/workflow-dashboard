@@ -106,17 +106,19 @@ header {
   backdrop-filter: blur(8px);
 }
 .title { display: flex; align-items: center; gap: 12px; }
-.logo { font-size: 26px; line-height: 1; }
-.title h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; }
-
-.repo-badge {
-  background: var(--header-glass);
-  padding: 4px 12px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-family: "JetBrains Mono", monospace;
-  font-weight: 500;
-  border: 1px solid rgba(255,255,255,0.1);
+.logo-mark {
+  width: 32px; height: 32px;
+  background: rgba(255,255,255,0.2);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 700; color: #fff;
+  flex-shrink: 0;
+}
+.title-text { display: flex; flex-direction: column; gap: 1px; }
+.title h1 { font-size: 16px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.2; }
+.subtitle {
+  font-size: 11px; font-family: "JetBrains Mono", monospace;
+  opacity: 0.7; font-weight: 400;
 }
 
 .badge.live {
@@ -264,15 +266,22 @@ button {
   font-weight: 500;
   font-size: 13px;
   margin-bottom: -1px;
+  text-decoration: none;
+  display: inline-block;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  letter-spacing: -0.01em;
 }
 .tab:hover {
   color: var(--text);
   background: var(--bg-hover);
+  text-decoration: none;
 }
 .tab.active {
   color: var(--accent);
   border-bottom-color: var(--accent);
   background: var(--tab-active-bg);
+  font-weight: 600;
 }
 .tab-panel { display: none; padding: 24px 28px; animation: fadeIn 0.2s ease; }
 .tab-panel.active { display: block; }
@@ -466,15 +475,35 @@ button {
   max-width: 1100px;
   margin: 0 auto 16px;
 }
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.card-header h3, .card-header h4 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+.card-badge {
+  font-size: 11px;
+  color: var(--text-faint);
+  background: var(--bg-elevated);
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-weight: 500;
+  border: 1px solid var(--border-soft);
+  white-space: nowrap;
+}
 .card-block h3 {
   color: var(--text);
   margin-bottom: 6px;
-  font-size: 17px;
+  font-size: 15px;
   font-weight: 600;
-  letter-spacing: -0.01em;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  letter-spacing: -0.02em;
 }
 .card-block h4 {
   color: var(--text);
