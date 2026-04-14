@@ -90,14 +90,21 @@ async function clearStatusLabels(repo, issueNumber) {
   }
 }
 
-// Parse issue numbers referenced in PR body/title
-// Matches: Closes #42, Fixes #42, Resolves #42, refs #42, or bare #42
+// Parse issue numbers from PR — checks body, title, AND branch name.
+// Branch name like "35-backend-api" or "feature/42-payment" → extracts issue number.
+// This means devs don't need to write "Closes #42" — just naming the branch is enough.
 function parseIssueRefs(pr) {
   const text = `${pr.title || ""} ${pr.body || ""}`;
   const matches = [...text.matchAll(/(?:closes?|fixes?|resolves?|refs?)?\s*#(\d+)/gi)];
-  const nums = [...new Set(matches.map((m) => parseInt(m[1])))];
+  const nums = new Set(matches.map((m) => parseInt(m[1])));
+
+  // Also extract from branch name: "35-backend-api", "feature/42-payment", "TC-042-fix"
+  const branch = pr.head?.ref || "";
+  const branchMatch = branch.match(/(?:^|[\/\-_])(\d+)(?:[\/\-_]|$)/);
+  if (branchMatch) nums.add(parseInt(branchMatch[1]));
+
   // Filter out the PR's own number
-  return nums.filter((n) => n !== pr.number);
+  return [...nums].filter((n) => n !== pr.number && n > 0);
 }
 
 export default async function handler(req, res) {
