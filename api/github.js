@@ -6,7 +6,7 @@ import { listIssues, listPulls, getMetrics } from "../lib/github.js";
 const COLUMNS = ["Todo", "In Progress", "In Review", "Testing", "Blocked", "Done"];
 
 export default async function handler(req, res) {
-  res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=60");
+  res.setHeader("Cache-Control", "s-maxage=5, stale-while-revalidate=10");
   try {
     if (!process.env.GITHUB_TOKEN || !process.env.GITHUB_REPO) {
       return res.status(500).json({

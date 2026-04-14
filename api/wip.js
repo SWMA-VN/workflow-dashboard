@@ -5,7 +5,7 @@
 import { listIssues } from "../lib/github.js";
 
 export default async function handler(req, res) {
-  res.setHeader("Cache-Control", "s-maxage=30, stale-while-revalidate=60");
+  res.setHeader("Cache-Control", "s-maxage=5, stale-while-revalidate=10");
   try {
     let team = {};
     try { team = JSON.parse(process.env.TEAM_CONFIG || "{}"); } catch {}

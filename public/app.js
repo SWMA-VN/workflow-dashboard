@@ -1,7 +1,7 @@
 // PM Command Center — public dashboard.
 // All data fetched via /api/* (server-side, secrets stay safe).
 
-const REFRESH_MS = 30_000;
+const REFRESH_MS = 10_000; // 10 sec — near real-time
 
 // ===== Theme toggle =====
 const themeToggle = document.getElementById("theme-toggle");
@@ -20,7 +20,9 @@ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", (e) => {
 
 // ===== Helpers =====
 async function fetchJson(path) {
-  const r = await fetch(path);
+  // Bust cache with timestamp to get fresh data every call
+  const sep = path.includes("?") ? "&" : "?";
+  const r = await fetch(`${path}${sep}_t=${Date.now()}`);
   if (!r.ok) throw new Error(`${path} → ${r.status}`);
   return r.json();
 }
