@@ -1,7 +1,7 @@
 // PM Command Center — public dashboard.
 // All data fetched via /api/* (server-side, secrets stay safe).
 
-const REFRESH_MS = 10_000; // 10 sec — near real-time
+const REFRESH_MS = 30_000; // 30 sec — balances real-time with API rate limits
 let filterDays = parseInt(localStorage.getItem("filterDays")) || 7;
 let filterFrom = localStorage.getItem("filterFrom") || "";
 let filterTo = localStorage.getItem("filterTo") || "";
