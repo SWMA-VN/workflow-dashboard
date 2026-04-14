@@ -51,14 +51,14 @@ export default async function handler(req, res) {
       const issues = aft.issues || morn.issues || "";
 
       // Delivery status per member (deterministic, no AI needed)
-      let status, statusEmoji;
-      if (done !== "—" && inProg === "—") { status = "shipped, capacity free"; statusEmoji = "🟢"; }
-      else if (done !== "—" && inProg !== "—") { status = "shipped + carrying over"; statusEmoji = "🔵"; }
-      else if (done === "—" && inProg !== "—") { status = "still working"; statusEmoji = "🟡"; }
-      else { status = "no log"; statusEmoji = "⚪"; }
-      if (issues) statusEmoji = "🚨";
+      let status, statusTag;
+      if (done !== "—" && inProg === "—") { status = "shipped, capacity free"; statusTag = "[DONE]"; }
+      else if (done !== "—" && inProg !== "—") { status = "shipped + carrying over"; statusTag = "[DONE+WIP]"; }
+      else if (done === "—" && inProg !== "—") { status = "still working"; statusTag = "[WIP]"; }
+      else { status = "no log"; statusTag = "[--]"; }
+      if (issues) statusTag = "[ISSUE]";
 
-      return { member: mb, done, inProgress: inProg, issues, status, statusEmoji };
+      return { member: mb, done, inProgress: inProg, issues, status, statusTag };
     });
 
     const doneCount = memberLines.filter((l) => l.done && l.done !== "—").length;
@@ -68,35 +68,35 @@ export default async function handler(req, res) {
     // Team focus snapshot (deterministic, no AI)
     const focusBlock = memberLines.map((l) => {
       const focus = pickFocus(l.done, l.inProgress);
-      return `${l.statusEmoji} **${l.member}** — _${l.status}_\n   🎯 Focus: ${focus}`;
+      return `${l.statusTag} **${l.member}** — _${l.status}_\n> Focus: ${focus}`;
     }).join("\n\n");
 
     // ===== Build Discord post =====
     const sheetDoneText = memberLines
       .filter((l) => l.done && l.done !== "—")
-      .map((l) => `**${l.member}** ✅\n${truncate(l.done, 280)}`)
+      .map((l) => `**${l.member}**\n> ${truncate(l.done, 280)}`)
       .join("\n\n") || "_no team done entries in sheet for this day_";
 
     const sheetWipText = memberLines
       .filter((l) => l.inProgress && l.inProgress !== "—")
-      .map((l) => `**${l.member}** 🔄\n${truncate(l.inProgress, 280)}`)
+      .map((l) => `**${l.member}**\n> ${truncate(l.inProgress, 280)}`)
       .join("\n\n") || "_nothing in-progress in sheet_";
 
     const issuesText = memberLines
       .filter((l) => l.issues)
-      .map((l) => `🚨 **${l.member}**: ${truncate(l.issues, 200)}`)
+      .map((l) => `[ISSUE] **${l.member}**: ${truncate(l.issues, 200)}`)
       .join("\n");
 
     const ghDoneList = m.prs_merged.slice(0, 5).concat(m.issues_closed.slice(0, 5))
-      .map((x) => `• [#${x.number}](${x.html_url}) ${truncate(x.title || "", 70)}`)
+      .map((x) => `- [#${x.number}](${x.html_url}) ${truncate(x.title || "", 70)}`)
       .join("\n") || "_nothing closed/merged on this date in GitHub_";
 
     const ghWipList = inProgressGh.slice(0, 8)
-      .map((i) => `• [#${i.number}](${i.html_url}) ${truncate(i.title, 60)} — ${(i.assignees || []).map((a) => `@${a.login}`).join(", ")}`)
+      .map((i) => `- [#${i.number}](${i.html_url}) ${truncate(i.title, 60)} — ${(i.assignees || []).map((a) => `@${a.login}`).join(", ")}`)
       .join("\n") || "_no GitHub WIP_";
 
     const staleList = stale.slice(0, 5)
-      .map((s) => `⏰ [#${s.number}](${s.url}) ${truncate(s.title, 55)} — ${s.assignees.map((a) => `@${a}`).join(", ") || "_unassigned_"} (${s.days}d)`)
+      .map((s) => `[STALE ${s.days}d] [#${s.number}](${s.url}) ${truncate(s.title, 55)} — ${s.assignees.map((a) => `@${a}`).join(", ") || "_unassigned_"}`)
       .join("\n");
 
     // === AI summary ===
@@ -131,20 +131,20 @@ Honest tone — if light, say so.`;
     const aiSummary = await aiSummarize(prompt, { maxTokens: 1500 });
 
     const fields = [
-      { name: `🎯 DELIVERY FOCUS — per member`, value: truncate(focusBlock, 1024), inline: false },
-      { name: `✅ Sheet — DONE today (${doneCount} members)`, value: truncate(sheetDoneText, 1024), inline: false },
-      { name: `🔄 Sheet — IN PROGRESS (rolling tomorrow, ${wipCount} members)`, value: truncate(sheetWipText, 1024), inline: false },
+      { name: `DELIVERY FOCUS — per member`, value: truncate(focusBlock, 1024), inline: false },
+      { name: `DONE today — from sheet (${doneCount} members)`, value: truncate(sheetDoneText, 1024), inline: false },
+      { name: `IN PROGRESS — rolling tomorrow (${wipCount} members)`, value: truncate(sheetWipText, 1024), inline: false },
     ];
-    if (issuesText) fields.push({ name: `🚨 Issues raised (${issuesCount})`, value: truncate(issuesText, 1024), inline: false });
-    fields.push({ name: "🐙 GitHub — closed/merged on this date", value: truncate(ghDoneList, 1024), inline: false });
-    fields.push({ name: `🐙 GitHub — currently in-progress (${inProgressGh.length})`, value: truncate(ghWipList, 1024), inline: false });
-    if (staleList) fields.push({ name: `⏰ Stale items (${stale.length})`, value: truncate(staleList, 1024), inline: false });
+    if (issuesText) fields.push({ name: `Issues raised (${issuesCount})`, value: truncate(issuesText, 1024), inline: false });
+    fields.push({ name: "GitHub — closed/merged on this date", value: truncate(ghDoneList, 1024), inline: false });
+    fields.push({ name: `GitHub — currently in-progress (${inProgressGh.length})`, value: truncate(ghWipList, 1024), inline: false });
+    if (staleList) fields.push({ name: `Stale items (${stale.length})`, value: truncate(staleList, 1024), inline: false });
 
     await postDiscord({
-      content: `🌇 **End of day check-in — ${projectName}** — ${dateStr} (Hanoi)`,
+      content: `**End of Day Report — ${projectName}** — ${dateStr} (Hanoi)`,
       embeds: [
         makeEmbed({
-          title: `🌇 EOD Report — ${dateStr}`,
+          title: `EOD Report — ${dateStr}`,
           description: truncate(aiSummary, 1800),
           color: m.blocked.length || stale.length >= 3 || issuesCount ? 0xE74C3C : 0x16A085,
           fields,
@@ -167,13 +167,13 @@ Honest tone — if light, say so.`;
 
     const html = `
       <html><body style="font-family: Arial, sans-serif; max-width: 760px;">
-      <h2 style="color:#16A085">🌇 EOD Check-in — ${esc(projectName)}</h2>
+      <h2 style="color:#16A085">EOD Report — ${esc(projectName)}</h2>
       <p><b>${dateStr} 16:15 (Hanoi)</b> · scope: ${esc(sc.label)}</p>
       <h3>AI Summary</h3>
       <p style="background:#d1fae5;padding:12px;border-left:4px solid #16A085;white-space:pre-wrap">${esc(aiSummary)}</p>
 
       <h3>🎯 Delivery focus per member</h3>
-      <ul>${memberLines.map((l) => `<li>${l.statusEmoji} <b>${esc(l.member)}</b> — <em>${esc(l.status)}</em><br>🎯 ${esc(pickFocus(l.done, l.inProgress))}</li>`).join("")}</ul>
+      <ul>${memberLines.map((l) => `<li><b>[${esc(l.statusTag.replace(/[\[\]]/g, ''))}] ${esc(l.member)}</b> — <em>${esc(l.status)}</em><br>Focus: ${esc(pickFocus(l.done, l.inProgress))}</li>`).join("")}</ul>
 
       <h3>✅ Done today (per team member)</h3>
       ${sheetDoneHtml}
@@ -197,7 +197,7 @@ Honest tone — if light, say so.`;
 
       <hr><p style="color:#888;font-size:12px">Auto-generated · <a href="https://ethanworkflowview.vercel.app">Dashboard</a></p>
       </body></html>`;
-    await sendEmail({ subject: `🌇 EOD — ${projectName} — ${dateStr}`, html });
+    await sendEmail({ subject: `EOD Report — ${projectName} — ${dateStr}`, html });
 
     res.json({
       ok: true,

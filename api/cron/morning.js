@@ -51,34 +51,34 @@ export default async function handler(req, res) {
       const tToday = (tMorn[mb] || {}).today || "—";
       const tYesterday = (tMorn[mb] || {}).yesterday || "—";
 
-      let status, statusEmoji;
-      if (tToday !== "—" && yDone !== "—") { status = "shipped yesterday + has plan"; statusEmoji = "🟢"; }
-      else if (tToday !== "—") { status = "fresh plan today"; statusEmoji = "🔵"; }
-      else if (yWip !== "—") { status = "carrying over"; statusEmoji = "🟡"; }
-      else if (yDone !== "—") { status = "shipped, awaiting plan"; statusEmoji = "🔵"; }
-      else { status = "no log"; statusEmoji = "⚪"; }
+      let status, statusTag;
+      if (tToday !== "—" && yDone !== "—") { status = "shipped yesterday + has plan"; statusTag = "[DONE+PLAN]"; }
+      else if (tToday !== "—") { status = "fresh plan today"; statusTag = "[PLAN]"; }
+      else if (yWip !== "—") { status = "carrying over"; statusTag = "[WIP]"; }
+      else if (yDone !== "—") { status = "shipped, awaiting plan"; statusTag = "[DONE]"; }
+      else { status = "no log"; statusTag = "[--]"; }
 
-      return { member: mb, yesterdayDone: yDone, yesterdayWip: yWip, todayPlan: tToday, todayYesterdayRecap: tYesterday, status, statusEmoji };
+      return { member: mb, yesterdayDone: yDone, yesterdayWip: yWip, todayPlan: tToday, todayYesterdayRecap: tYesterday, status, statusTag };
     });
 
     const focusBlock = memberRows.map((l) => {
-      const focus = pickFocus(l.todayPlan !== "—" ? l.todayPlan : (l.yesterdayWip !== "—" ? l.yesterdayWip : l.yesterdayDone), null);
-      return `${l.statusEmoji} **${l.member}** — _${l.status}_\n   🎯 Today: ${focus}`;
+      const focus = pickFocus(l.todayPlan !== "—" ? l.todayPlan : (l.yesterdayWip !== "—" ? l.yesterdayWip : l.yesterdayDone));
+      return `${l.statusTag} **${l.member}** — _${l.status}_\n> Focus: ${focus}`;
     }).join("\n\n");
 
     const yesterdayDoneText = memberRows
       .filter((l) => l.yesterdayDone && l.yesterdayDone !== "—")
-      .map((l) => `**${l.member}** ✅\n${truncate(l.yesterdayDone, 280)}`)
-      .join("\n\n") || "_no DONE entries in sheet for ${yesterdayStr}_";
+      .map((l) => `**${l.member}**\n> ${truncate(l.yesterdayDone, 280)}`)
+      .join("\n\n") || `_no DONE entries in sheet for ${yesterdayStr}_`;
 
     const todayPlanText = memberRows
       .filter((l) => l.todayPlan && l.todayPlan !== "—")
-      .map((l) => `**${l.member}** ➡️\n${truncate(l.todayPlan, 280)}`)
+      .map((l) => `**${l.member}**\n> ${truncate(l.todayPlan, 280)}`)
       .join("\n\n") || `_no team plan in sheet for ${todayStr} yet_`;
 
     const carryOverText = memberRows
       .filter((l) => l.yesterdayWip && l.yesterdayWip !== "—")
-      .map((l) => `**${l.member}** 🔄\n${truncate(l.yesterdayWip, 240)}`)
+      .map((l) => `**${l.member}**\n> ${truncate(l.yesterdayWip, 240)}`)
       .join("\n\n");
 
     // AI brief
@@ -110,22 +110,22 @@ Be concrete and direct.`;
 
     // Discord
     const fields = [
-      { name: `🎯 DELIVERY FOCUS — per member today`, value: truncate(focusBlock, 1024), inline: false },
-      { name: `✅ Yesterday (${yesterdayStr}) — DONE per member`, value: truncate(yesterdayDoneText, 1024), inline: false },
+      { name: `DELIVERY FOCUS — per member today`, value: truncate(focusBlock, 1024), inline: false },
+      { name: `Yesterday (${yesterdayStr}) — DONE per member`, value: truncate(yesterdayDoneText, 1024), inline: false },
     ];
-    if (carryOverText) fields.push({ name: `🔄 Carrying over from yesterday`, value: truncate(carryOverText, 1024), inline: false });
-    fields.push({ name: `➡️ Today (${todayStr}) — PLAN per member`, value: truncate(todayPlanText, 1024), inline: false });
+    if (carryOverText) fields.push({ name: `Carrying over from yesterday`, value: truncate(carryOverText, 1024), inline: false });
+    fields.push({ name: `Today (${todayStr}) — PLAN per member`, value: truncate(todayPlanText, 1024), inline: false });
     fields.push({
-      name: "🐙 GitHub stats",
-      value: `Yesterday → closed ${m.issues_closed.length}, merged ${m.prs_merged.length}, commits ${m.commits.length}\nNow → in-progress ${inProgressGh.length}, blockers ${m.blocked.length}`,
+      name: "GitHub stats",
+      value: `Yesterday: closed ${m.issues_closed.length}, merged ${m.prs_merged.length}, commits ${m.commits.length}\nNow: in-progress ${inProgressGh.length}, blockers ${m.blocked.length}`,
       inline: false,
     });
 
     await postDiscord({
-      content: `🌅 **Morning briefing — ${projectName}** — ${todayStr} (Hanoi)`,
+      content: `**Morning Briefing — ${projectName}** — ${todayStr} (Hanoi)`,
       embeds: [
         makeEmbed({
-          title: `☕ Morning Briefing — ${todayStr}`,
+          title: `Morning Briefing — ${todayStr}`,
           description: truncate(aiSummary, 1800),
           color: 0xF59E0B,
           fields,
@@ -143,12 +143,12 @@ Be concrete and direct.`;
 
     const html = `
       <html><body style="font-family: Arial, sans-serif; max-width: 760px;">
-      <h2 style="color:#F59E0B">☕ Morning Briefing — ${esc(projectName)}</h2>
+      <h2 style="color:#F59E0B">Morning Briefing — ${esc(projectName)}</h2>
       <p><b>${todayStr} 10:15 (Hanoi)</b> · yesterday workday: ${yesterdayStr} · scope: ${esc(sc.label)}</p>
       <h3>AI Summary</h3>
       <p style="background:#fef3c7;padding:12px;border-left:4px solid #F59E0B;white-space:pre-wrap">${esc(aiSummary)}</p>
       <h3>🎯 Delivery focus per member today</h3>
-      <ul>${memberRows.map((l) => `<li>${l.statusEmoji} <b>${esc(l.member)}</b> — <em>${esc(l.status)}</em><br>🎯 ${esc(pickFocus(l.todayPlan !== "—" ? l.todayPlan : (l.yesterdayWip !== "—" ? l.yesterdayWip : l.yesterdayDone)))}</li>`).join("")}</ul>
+      <ul>${memberRows.map((l) => `<li><b>[${esc(l.statusTag.replace(/[\[\]]/g, ''))}] ${esc(l.member)}</b> — <em>${esc(l.status)}</em><br>Focus: ${esc(pickFocus(l.todayPlan !== "—" ? l.todayPlan : (l.yesterdayWip !== "—" ? l.yesterdayWip : l.yesterdayDone)))}</li>`).join("")}</ul>
       <h3>✅ Yesterday — DONE</h3>
       ${yDoneHtml}
       <h3>➡️ Today — PLAN</h3>
@@ -164,7 +164,7 @@ Be concrete and direct.`;
       </ul>
       <hr><p style="color:#888;font-size:12px">Auto-generated · <a href="https://ethanworkflowview.vercel.app">Dashboard</a></p>
       </body></html>`;
-    await sendEmail({ subject: `☕ Morning — ${projectName} — ${todayStr}`, html });
+    await sendEmail({ subject: `Morning Briefing — ${projectName} — ${todayStr}`, html });
 
     res.json({
       ok: true,
