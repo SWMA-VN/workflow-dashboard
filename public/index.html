@@ -70,6 +70,16 @@
 
 <!-- OVERVIEW -->
 <section id="tab-overview" class="tab-panel active">
+  <!-- Milestones (top of overview) -->
+  <div class="card-block milestones-block">
+    <div class="card-header">
+      <h3>Milestones &amp; Forecasted Ship Dates</h3>
+      <span class="card-badge">open projects</span>
+    </div>
+    <p class="hint">Forecast uses current velocity. Red = late, yellow = at risk, green = on track.</p>
+    <div id="milestones-list"><div class="loading">Loading...</div></div>
+  </div>
+
   <div class="overview-grid">
     <div class="card-block wip-block">
       <div class="card-header">
@@ -142,6 +152,13 @@
       <div class="card-header"><h3>Throughput</h3><span class="card-badge">PRs merged per dev, 30d</span></div>
       <div id="throughput-list"><div class="loading">Loading...</div></div>
     </div>
+    <div class="card-block">
+      <div class="card-header"><h3>PR Review Backlog</h3><span class="card-badge" id="backlog-badge">open PRs waiting</span></div>
+      <p class="hint">PRs waiting for review. Red = 3+ days, yellow = 1+ day. Review lag is the #1 hidden velocity killer.</p>
+      <div id="backlog-stats" class="cycle-grid" style="margin-bottom:16px"></div>
+      <div id="backlog-list"><div class="loading">Loading...</div></div>
+    </div>
+
     <div class="card-block">
       <div class="card-header"><h3>Activity</h3><span class="card-badge">commits per dev per day, 30d</span></div>
       <div id="heatmap-wrap"><div class="loading">Loading...</div></div>

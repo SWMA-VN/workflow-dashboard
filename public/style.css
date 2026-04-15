@@ -738,6 +738,143 @@ footer {
 ::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
 
 /* ============================================================
+   MILESTONES
+   ============================================================ */
+.milestone-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--bg-elevated);
+  border-radius: 10px;
+  margin-bottom: 10px;
+  border-left: 4px solid var(--text-faint);
+  transition: all 0.15s ease;
+  text-decoration: none;
+  color: inherit;
+}
+.milestone-row:hover {
+  background: var(--bg-hover);
+  transform: translateX(2px);
+  text-decoration: none;
+}
+.milestone-row.status-on-track { border-left-color: var(--success); }
+.milestone-row.status-at-risk  { border-left-color: var(--warning); }
+.milestone-row.status-late     { border-left-color: var(--danger); }
+.milestone-row.status-done     { border-left-color: var(--accent); opacity: 0.7; }
+
+.milestone-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.milestone-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: "JetBrains Mono", monospace;
+  margin-bottom: 8px;
+}
+.milestone-bar {
+  width: 100%;
+  height: 8px;
+  background: var(--bg-card);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.milestone-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
+.status-on-track .milestone-bar-fill { background: var(--success); }
+.status-at-risk .milestone-bar-fill  { background: var(--warning); }
+.status-late .milestone-bar-fill     { background: var(--danger); }
+.status-done .milestone-bar-fill     { background: var(--accent); }
+
+.milestone-side {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  min-width: 140px;
+}
+.milestone-percent {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.milestone-forecast {
+  font-size: 11px;
+  font-family: "JetBrains Mono", monospace;
+  color: var(--text-muted);
+}
+.milestone-status-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.status-on-track .milestone-status-badge { background: var(--success-soft); color: var(--success); }
+.status-at-risk  .milestone-status-badge { background: var(--warning-soft); color: var(--warning); }
+.status-late     .milestone-status-badge { background: var(--danger-soft); color: var(--danger); }
+.status-done     .milestone-status-badge { background: var(--accent-soft); color: var(--accent); }
+
+/* ============================================================
+   PR REVIEW BACKLOG
+   ============================================================ */
+.backlog-pr {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  margin-bottom: 6px;
+  text-decoration: none;
+  color: inherit;
+  border-left: 3px solid var(--text-faint);
+  transition: all 0.12s ease;
+}
+.backlog-pr:hover { background: var(--bg-hover); transform: translateX(2px); text-decoration: none; }
+.backlog-pr.sev-red { border-left-color: var(--danger); }
+.backlog-pr.sev-yellow { border-left-color: var(--warning); }
+.backlog-pr.sev-green { border-left-color: var(--success); }
+
+.backlog-pr-age {
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text);
+  min-width: 48px;
+}
+.sev-red .backlog-pr-age { color: var(--danger); }
+.sev-yellow .backlog-pr-age { color: var(--warning); }
+
+.backlog-pr-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.backlog-pr-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: "JetBrains Mono", monospace;
+}
+
+/* ============================================================
    OVERVIEW TAB — WIP, velocity, stale
    ============================================================ */
 .overview-grid {

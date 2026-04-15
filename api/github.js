@@ -1,7 +1,7 @@
 // GET /api/github
 // Returns Kanban-bucketed issues + metrics for dashboard.
 
-import { listIssues, listPulls, getMetrics } from "../lib/github.js";
+import { listIssues, listPulls, getMetrics, listMilestones } from "../lib/github.js";
 
 const COLUMNS = ["Todo", "In Progress", "In Review", "Testing", "Blocked", "Done"];
 
@@ -100,12 +100,58 @@ export default async function handler(req, res) {
       });
     }
 
+    // ===== MILESTONES + FORECASTING =====
+    const milestones = await listMilestones();
+    const weeklyVelocity = m.prs_merged.length / Math.max(1, daysParam / 7); // PRs/week baseline
+    const milestoneData = milestones.map((ml) => {
+      const total = ml.open_issues + ml.closed_issues;
+      const percent = total > 0 ? Math.round((ml.closed_issues / total) * 100) : 0;
+      const remaining = ml.open_issues;
+
+      // Forecast: weeks_to_ship = remaining / velocity_per_week
+      let forecast = null, status = "on-track", daysOffset = 0;
+      if (remaining === 0) {
+        status = "done";
+      } else if (weeklyVelocity >= 0.1) {
+        const weeksToShip = remaining / weeklyVelocity;
+        forecast = new Date(Date.now() + weeksToShip * 7 * 86400000).toISOString();
+        if (ml.due_on) {
+          const target = new Date(ml.due_on).getTime();
+          const fc = new Date(forecast).getTime();
+          daysOffset = Math.round((fc - target) / 86400000);
+          if (daysOffset > 3) status = "late";
+          else if (daysOffset > 0) status = "at-risk";
+        }
+      }
+
+      return {
+        number: ml.number,
+        title: ml.title,
+        description: ml.description || "",
+        repo: ml._repo || process.env.GITHUB_REPO,
+        url: ml.html_url,
+        total, remaining, closed: ml.closed_issues,
+        percent,
+        due_on: ml.due_on,
+        forecast,
+        days_offset: daysOffset,
+        status,
+      };
+    }).sort((a, b) => {
+      // At-risk first, then by due date
+      const order = { "late": 0, "at-risk": 1, "on-track": 2, "done": 3 };
+      if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status];
+      return (a.due_on || "9") < (b.due_on || "9") ? -1 : 1;
+    });
+
     res.json({
       generated_at: new Date().toISOString(),
       repo: process.env.GITHUB_REPO || process.env.GITHUB_ORG,
       filter_days: daysParam,
       filter_from: fromParam || null,
       filter_to: toParam || null,
+      milestones: milestoneData,
+      velocity_per_week: +weeklyVelocity.toFixed(1),
       metrics: {
         velocity_30d: m.prs_merged.length,
         in_progress: m.in_progress.length,

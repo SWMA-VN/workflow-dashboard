@@ -375,7 +375,45 @@ document.getElementById("real-btn").addEventListener("click", async () => {
 
 // ======= OVERVIEW TAB =======
 async function loadOverview() {
-  await Promise.all([loadWip(), loadVelocity(), loadStale()]);
+  await Promise.all([loadMilestones(), loadWip(), loadVelocity(), loadStale()]);
+}
+
+async function loadMilestones() {
+  const wrap = document.getElementById("milestones-list");
+  if (!wrap) return;
+  try {
+    const data = await fetchJson(`/api/github?days=${filterDays}`);
+    const ms = data.milestones || [];
+    if (!ms.length) {
+      wrap.innerHTML = '<div class="loading">No open milestones. Create one in GitHub: any repo → Issues → Milestones → New milestone.</div>';
+      return;
+    }
+    wrap.innerHTML = ms.map((m) => {
+      const pct = Math.min(m.percent, 100);
+      const forecastDate = m.forecast ? new Date(m.forecast).toISOString().slice(0, 10) : null;
+      const targetDate = m.due_on ? new Date(m.due_on).toISOString().slice(0, 10) : null;
+      const offsetLabel = m.days_offset > 0 ? `+${m.days_offset}d late` : m.days_offset < 0 ? `${Math.abs(m.days_offset)}d ahead` : "on target";
+      const repoName = (m.repo || "").split("/").pop();
+      return `
+        <a href="${m.url}" target="_blank" class="milestone-row status-${m.status}">
+          <div>
+            <div class="milestone-title">${escapeHtml(m.title)}</div>
+            <div class="milestone-meta">
+              ${m.closed}/${m.total} tasks · repo: ${escapeHtml(repoName)}
+              ${targetDate ? ` · target: ${targetDate}` : ""}
+              ${forecastDate ? ` · forecast: ${forecastDate} (${offsetLabel})` : ""}
+            </div>
+            <div class="milestone-bar"><div class="milestone-bar-fill" style="width:${pct}%"></div></div>
+          </div>
+          <div class="milestone-side">
+            <span class="milestone-percent">${pct}%</span>
+            <span class="milestone-status-badge">${m.status.replace("-", " ")}</span>
+          </div>
+        </a>`;
+    }).join("");
+  } catch (e) {
+    wrap.innerHTML = '<div class="loading">Click Refresh to retry</div>';
+  }
 }
 
 async function loadWip() {
@@ -537,11 +575,61 @@ async function loadPerformance() {
       }).join("");
     }
 
+    // Review backlog
+    renderReviewBacklog(data.review_backlog || [], data.review_backlog_summary || {});
+
     // Heatmap
     renderHeatmap(data.commit_heatmap);
   } catch (e) {
     document.getElementById("cycle-stats").innerHTML = `<div class="loading">⚠️ ${escapeHtml(e.message)}</div>`;
   }
+}
+
+function renderReviewBacklog(items, summary) {
+  const stats = document.getElementById("backlog-stats");
+  const list = document.getElementById("backlog-list");
+  const badge = document.getElementById("backlog-badge");
+  if (!stats || !list) return;
+
+  const health = summary.health || "good";
+  const healthClass = health === "good" ? "success" : health === "ok" ? "warning" : "danger";
+
+  stats.innerHTML = `
+    <div class="cycle-stat">
+      <div class="cycle-val">${summary.total_open || 0}</div>
+      <div class="cycle-label">Total open</div>
+    </div>
+    <div class="cycle-stat">
+      <div class="cycle-val">${summary.median_wait || 0}<span class="cycle-unit">d</span></div>
+      <div class="cycle-label">Median wait</div>
+    </div>
+    <div class="cycle-stat">
+      <div class="cycle-val">${summary.waiting_over_1d || 0}</div>
+      <div class="cycle-label">&gt; 1 day</div>
+    </div>
+    <div class="cycle-stat">
+      <div class="cycle-val cycle-${healthClass}">${summary.waiting_over_3d || 0}</div>
+      <div class="cycle-label">&gt; 3 days · ${health.toUpperCase()}</div>
+    </div>`;
+
+  if (badge) badge.textContent = `${summary.total_open || 0} PRs waiting`;
+
+  if (!items.length) {
+    list.innerHTML = '<div class="loading">No open PRs — all clear!</div>';
+    return;
+  }
+  list.innerHTML = items.map((p) => {
+    const repoShort = (p.repo || "").split("/").pop();
+    return `
+      <a href="${p.url}" target="_blank" class="backlog-pr sev-${p.severity}">
+        <span class="backlog-pr-age">${p.age_days}d</span>
+        <div>
+          <div class="backlog-pr-title">#${p.number} ${escapeHtml(p.title)}</div>
+          <div class="backlog-pr-meta">@${escapeHtml(p.author)} · ${escapeHtml(repoShort)}</div>
+        </div>
+        <span class="label-tag">${p.severity === "red" ? "urgent" : p.severity === "yellow" ? "stale" : "ok"}</span>
+      </a>`;
+  }).join("");
 }
 
 function renderHeatmap(data) {

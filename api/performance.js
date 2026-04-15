@@ -104,6 +104,38 @@ export default async function handler(req, res) {
       heatmap[login][day] = (heatmap[login][day] || 0) + 1;
     }
 
+    // ===== PR REVIEW BACKLOG =====
+    // PRs currently open, sorted by how long they've been waiting
+    const openPulls = await listPulls({ state: "open", days: 60 });
+    const reviewBacklog = openPulls
+      .filter((p) => !p.draft)
+      .map((p) => {
+        const ageDays = (Date.now() - new Date(p.created_at).getTime()) / 86400000;
+        const staleDays = (Date.now() - new Date(p.updated_at).getTime()) / 86400000;
+        return {
+          number: p.number,
+          title: p.title,
+          url: p.html_url,
+          author: p.user?.login || "unknown",
+          repo: p._repo || process.env.GITHUB_REPO,
+          age_days: +ageDays.toFixed(1),
+          stale_days: +staleDays.toFixed(1),
+          severity: ageDays > 3 ? "red" : ageDays > 1 ? "yellow" : "green",
+        };
+      })
+      .sort((a, b) => b.age_days - a.age_days);
+
+    const backlogSummary = {
+      total_open: reviewBacklog.length,
+      waiting_over_1d: reviewBacklog.filter((p) => p.age_days > 1).length,
+      waiting_over_3d: reviewBacklog.filter((p) => p.age_days > 3).length,
+      median_wait: reviewBacklog.length
+        ? +reviewBacklog[Math.floor(reviewBacklog.length / 2)].age_days.toFixed(1)
+        : 0,
+      health: reviewBacklog.filter((p) => p.age_days > 3).length === 0 ? "good"
+        : reviewBacklog.filter((p) => p.age_days > 3).length <= 2 ? "ok" : "slow",
+    };
+
     res.json({
       generated_at: new Date().toISOString(),
       cycle_time_days: {
@@ -120,6 +152,8 @@ export default async function handler(req, res) {
       quality,
       stale_tickets: stale,
       commit_heatmap: heatmap,
+      review_backlog: reviewBacklog.slice(0, 20),
+      review_backlog_summary: backlogSummary,
     });
   } catch (e) {
     console.error(e);

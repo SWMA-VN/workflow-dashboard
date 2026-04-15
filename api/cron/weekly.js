@@ -1,7 +1,7 @@
 // Vercel Cron — runs Friday 17:00 Hanoi.
 // Weekly report with velocity trend alert if velocity drops 30%+
 
-import { getMetrics, listPulls } from "../../lib/github.js";
+import { getMetrics, listPulls, listMilestones } from "../../lib/github.js";
 import { aiSummarize } from "../../lib/ai.js";
 import { postDiscord, makeEmbed } from "../../lib/discord.js";
 import { sendEmail } from "../../lib/email.js";
@@ -68,6 +68,62 @@ Cover: progress this week, what's shipping next week, top 3 risks. If velocity d
 
     const summary = await aiSummarize(prompt, { maxTokens: 2048 });
 
+    // ===== STAKEHOLDER ONE-PAGER =====
+    const milestones = await listMilestones();
+    const weeklyVel = m.prs_merged.length / 1; // per week
+    const milestoneRows = milestones
+      .filter((ml) => ml.open_issues + ml.closed_issues > 0)
+      .slice(0, 5)
+      .map((ml) => {
+        const total = ml.open_issues + ml.closed_issues;
+        const pct = total > 0 ? Math.round((ml.closed_issues / total) * 100) : 0;
+        const weeksLeft = weeklyVel >= 0.1 ? Math.ceil(ml.open_issues / weeklyVel) : null;
+        const forecast = weeksLeft !== null
+          ? new Date(Date.now() + weeksLeft * 7 * 86400000).toISOString().slice(0, 10)
+          : "TBD";
+        const target = ml.due_on ? new Date(ml.due_on).toISOString().slice(0, 10) : "no deadline";
+        return { title: ml.title, pct, total, closed: ml.closed_issues, target, forecast };
+      });
+
+    const topShipped = m.prs_merged.slice(0, 3).map((p) => p.title);
+    const top3Risks = [];
+    if (m.blocked.length) top3Risks.push(`${m.blocked.length} blocker${m.blocked.length === 1 ? "" : "s"}`);
+    if (hasVelocityDrop) top3Risks.push(`velocity down ${dropPct}%`);
+    const staleCount = m.issues_opened.filter(() => true).length;
+    if (weeklyVelocity[1] === 0) top3Risks.push("no PRs merged last week");
+
+    const stakeholderHtml = `
+      <div style="background:#eff6ff;border:1px solid #2563eb;border-radius:8px;padding:16px;margin:20px 0">
+        <h3 style="color:#1d4ed8;margin-top:0">Stakeholder One-Pager — safe to forward</h3>
+
+        <h4>Shipped this week</h4>
+        ${topShipped.length ? `<ul>${topShipped.map((t) => `<li>${t}</li>`).join("")}</ul>` : "<p><em>No merges this week.</em></p>"}
+
+        <h4>Shipping next 4 weeks</h4>
+        ${milestoneRows.length
+          ? `<table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%">
+              <tr><th>Project</th><th>Progress</th><th>Target</th><th>Forecast</th></tr>
+              ${milestoneRows.map((r) => `<tr>
+                <td>${r.title}</td>
+                <td>${r.pct}% (${r.closed}/${r.total})</td>
+                <td>${r.target}</td>
+                <td>${r.forecast}</td>
+              </tr>`).join("")}
+            </table>`
+          : "<p><em>No milestones defined.</em></p>"}
+
+        <h4>Top risks</h4>
+        ${top3Risks.length ? `<ul>${top3Risks.map((r) => `<li>${r}</li>`).join("")}</ul>` : "<p>No critical risks.</p>"}
+
+        <h4>Key metrics</h4>
+        <ul>
+          <li>Velocity: <b>${velocity}</b> this week (avg ${prevWeeksAvg.toFixed(1)})</li>
+          <li>Team throughput: <b>${m.prs_merged.length}</b> PRs merged</li>
+          <li>Active work: <b>${m.in_progress.length}</b> in progress</li>
+        </ul>
+      </div>
+    `;
+
     // Discord: alert embed + weekly embed
     const embeds = [];
 
@@ -127,6 +183,7 @@ Cover: progress this week, what's shipping next week, top 3 risks. If velocity d
       ${alertHtml}
       <h3>Executive Summary</h3>
       <p style="background:#f0f4f8;padding:12px;border-left:4px solid #1F4E79">${summary}</p>
+      ${stakeholderHtml}
       <h3>Velocity Metrics</h3>
       <table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse">
         <tr><td><b>Velocity (this week)</b></td><td>${velocity}</td></tr>
