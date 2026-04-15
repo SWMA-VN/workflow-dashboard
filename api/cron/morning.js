@@ -27,38 +27,96 @@ export default async function handler(req, res) {
     const todayStr = formatSheetDate(today);
     const yesterdayStr = formatSheetDate(yesterday);
 
-    // Sheet — yesterday's afternoon (what they finished) + today's morning (what they plan)
+    // Config: team mapping + excluded users (clients)
+    const memberMap = (() => {
+      try { return JSON.parse(process.env.MEMBER_MAP || "{}"); }
+      catch { return {}; }
+    })();
+    const defaultMap = {
+      "Duong N.": "sexybells", "Huy Huynh": "huynhtuanhuy", "Nathan C.": "khanwilson",
+      "Hai L.": "hailh14", "CuongNQ": "cuonghanc",
+    };
+    const finalMap = Object.keys(memberMap).length ? memberMap : defaultMap;
+    const excludedUsers = (process.env.EXCLUDED_USERS || "vamadeus").split(",").map((s) => s.trim().toLowerCase());
+    const isExcluded = (login) => login && excludedUsers.includes(login.toLowerCase());
+
+    // Sheet
     const { day: yDay, error: yErr } = await getDayActivity(yesterday);
     const { day: tDay, error: tErr } = await getDayActivity(today);
     const sheetError = yErr || tErr;
-
     const yAft = (yDay && yDay.afternoon) || {};
     const tMorn = (tDay && tDay.morning) || {};
-    const allMembers = Array.from(new Set([
-      ...Object.keys(yAft), ...Object.keys(tMorn),
-    ]));
 
-    // GitHub: 1-day window
+    // GitHub yesterday activity (team only)
     const m = await getMetrics({ days: 1 });
+    const teamMergedPrs = m.prs_merged.filter((p) => !isExcluded(p.user?.login));
+    const teamCommits = m.commits.filter((c) => !isExcluded(c.author?.login || c.commit?.author?.name));
+    const teamIssuesClosed = m.issues_closed.filter((i) => !(i.assignees || []).every((a) => isExcluded(a.login)));
+
     const openIssues = await listIssues({ state: "open" });
     const realIssues = openIssues.filter((i) => !i.pull_request);
     const inProgressGh = realIssues.filter((i) => (i.assignees || []).length > 0);
 
-    // Build per-member section + delivery focus
-    const memberRows = allMembers.map((mb) => {
-      const yDone = (yAft[mb] || {}).done || "—";
-      const yWip = (yAft[mb] || {}).inProgress || "—";
-      const tToday = (tMorn[mb] || {}).today || "—";
-      const tYesterday = (tMorn[mb] || {}).yesterday || "—";
+    // Per-user GitHub activity (yesterday)
+    const ghByUser = {};
+    const ensure = (l) => { if (!ghByUser[l]) ghByUser[l] = { merged: [], commits: 0, closed: [] }; };
+    for (const p of teamMergedPrs) if (p.user?.login) { ensure(p.user.login); ghByUser[p.user.login].merged.push(p); }
+    for (const c of teamCommits) {
+      const l = c.author?.login || c.commit?.author?.name;
+      if (l) { ensure(l); ghByUser[l].commits++; }
+    }
+    for (const i of teamIssuesClosed) for (const a of (i.assignees || [])) { if (a.login) { ensure(a.login); ghByUser[a.login].closed.push(i); } }
+
+    // Per-user open assigned (for today plan fallback)
+    const openByUser = {};
+    for (const i of realIssues) for (const a of (i.assignees || [])) {
+      if (isExcluded(a.login)) continue;
+      if (!openByUser[a.login]) openByUser[a.login] = [];
+      openByUser[a.login].push(i);
+    }
+
+    // Build per-member from TEAM (not sheet) — always meaningful
+    const memberRows = Object.keys(finalMap).map((mb) => {
+      const ghUser = finalMap[mb];
+      const yDoneSheet = (yAft[mb] || {}).done || "";
+      const yWipSheet = (yAft[mb] || {}).inProgress || "";
+      const tTodaySheet = (tMorn[mb] || {}).today || "";
+      const ghAct = ghByUser[ghUser] || { merged: [], commits: 0, closed: [] };
+      const ghOpen = openByUser[ghUser] || [];
+
+      // Yesterday DONE: sheet OR GitHub activity yesterday
+      let yDone = yDoneSheet;
+      if (!yDone || yDone === "—") {
+        const parts = [];
+        if (ghAct.merged.length) parts.push(...ghAct.merged.slice(0, 3).map((p) => `Merged #${p.number}: ${p.title}`));
+        if (ghAct.closed.length) parts.push(...ghAct.closed.slice(0, 2).map((i) => `Closed #${i.number}: ${i.title}`));
+        if (!parts.length && ghAct.commits > 0) parts.push(`${ghAct.commits} commits`);
+        yDone = parts.join("\n") || "—";
+      }
+
+      // Yesterday WIP
+      let yWip = yWipSheet || "—";
+
+      // Today PLAN: sheet OR currently assigned open issues
+      let tToday = tTodaySheet;
+      if (!tToday || tToday === "—") {
+        if (ghOpen.length) tToday = ghOpen.slice(0, 3).map((i) => `#${i.number}: ${i.title}`).join("\n");
+        else tToday = "—";
+      }
+
+      const hasYDone = yDone && yDone !== "—";
+      const hasYWip = yWip && yWip !== "—";
+      const hasTPlan = tToday && tToday !== "—";
 
       let status, statusTag;
-      if (tToday !== "—" && yDone !== "—") { status = "shipped yesterday + has plan"; statusTag = "[DONE+PLAN]"; }
-      else if (tToday !== "—") { status = "fresh plan today"; statusTag = "[PLAN]"; }
-      else if (yWip !== "—") { status = "carrying over"; statusTag = "[WIP]"; }
-      else if (yDone !== "—") { status = "shipped, awaiting plan"; statusTag = "[DONE]"; }
-      else { status = "no log"; statusTag = "[--]"; }
+      if (hasTPlan && hasYDone) { status = "shipped yesterday + has plan"; statusTag = "[DONE+PLAN]"; }
+      else if (hasTPlan) { status = "fresh plan today"; statusTag = "[PLAN]"; }
+      else if (hasYWip) { status = "carrying over"; statusTag = "[WIP]"; }
+      else if (hasYDone) { status = "shipped, awaiting plan"; statusTag = "[DONE]"; }
+      else if (ghAct.commits > 0) { status = `active (${ghAct.commits} commits yesterday)`; statusTag = "[ACTIVE]"; }
+      else { status = "quiet"; statusTag = "[QUIET]"; }
 
-      return { member: mb, yesterdayDone: yDone, yesterdayWip: yWip, todayPlan: tToday, todayYesterdayRecap: tYesterday, status, statusTag };
+      return { member: mb, yesterdayDone: yDone, yesterdayWip: yWip, todayPlan: tToday, todayYesterdayRecap: (tMorn[mb] || {}).yesterday || "—", status, statusTag, ghCommits: ghAct.commits };
     });
 
     const focusBlock = memberRows.map((l) => {
@@ -69,55 +127,55 @@ export default async function handler(req, res) {
     const yesterdayDoneText = memberRows
       .filter((l) => l.yesterdayDone && l.yesterdayDone !== "—")
       .map((l) => `**${l.member}**\n> ${truncate(l.yesterdayDone, 280)}`)
-      .join("\n\n") || `_no DONE entries in sheet for ${yesterdayStr}_`;
+      .join("\n\n");
 
     const todayPlanText = memberRows
       .filter((l) => l.todayPlan && l.todayPlan !== "—")
       .map((l) => `**${l.member}**\n> ${truncate(l.todayPlan, 280)}`)
-      .join("\n\n") || `_no team plan in sheet for ${todayStr} yet_`;
+      .join("\n\n");
 
     const carryOverText = memberRows
       .filter((l) => l.yesterdayWip && l.yesterdayWip !== "—")
       .map((l) => `**${l.member}**\n> ${truncate(l.yesterdayWip, 240)}`)
       .join("\n\n");
 
-    // AI brief
+    // AI brief — always analyzes GitHub activity if sheet is empty
     const prompt = `You are a PM assistant writing the MORNING briefing for ${projectName}.
 Today is ${todayStr} (Hanoi). "Yesterday" workday = ${yesterdayStr}.
 
-WHAT THE TEAM SAID YESTERDAY (afternoon section):
-DONE:
-${memberRows.filter((l) => l.yesterdayDone && l.yesterdayDone !== "—").map((l) => `${l.member}: ${l.yesterdayDone}`).join("\n") || "(none logged)"}
+PER-MEMBER STATE (combined sheet + GitHub activity):
+${memberRows.map((l) => `  ${l.member} [${l.statusTag}] ${l.status}: yesterdayDone="${l.yesterdayDone}", yesterdayWip="${l.yesterdayWip}", todayPlan="${l.todayPlan}", commits=${l.ghCommits}`).join("\n")}
 
-CARRYING OVER (in-progress yesterday → still going):
-${memberRows.filter((l) => l.yesterdayWip && l.yesterdayWip !== "—").map((l) => `${l.member}: ${l.yesterdayWip}`).join("\n") || "(none)"}
-
-WHAT THE TEAM PLANS TODAY (morning section):
-${memberRows.filter((l) => l.todayPlan && l.todayPlan !== "—").map((l) => `${l.member}: ${l.todayPlan}`).join("\n") || "(no team plan posted yet)"}
-
-GITHUB CONTEXT:
-- Yesterday closed: ${m.issues_closed.length}, merged: ${m.prs_merged.length}, commits: ${m.commits.length}
-- Currently in-progress: ${inProgressGh.length}, blockers: ${m.blocked.length}
+TEAM-ONLY GITHUB ACTIVITY yesterday (excludes client users):
+- PRs merged: ${teamMergedPrs.length} — titles: ${teamMergedPrs.slice(0, 8).map((p) => p.title).join(" | ")}
+- Issues closed: ${teamIssuesClosed.length}
+- Commits total: ${teamCommits.length}
+- Currently in-progress: ${inProgressGh.length}
+- Blockers: ${m.blocked.length}
 
 Write a 5-7 sentence morning briefing covering:
-1. What we shipped yesterday (be specific, mention names + features)
+1. What we shipped yesterday (mention specific PR titles + developers)
 2. Today's focus (top 3 priorities visible)
 3. Any risks or carryovers to watch
 4. One motivating note
-Be concrete and direct.`;
+
+IMPORTANT RULES:
+- NEVER say "sheet empty", "no logs", "no entries". Always analyze GitHub activity instead.
+- Mention specific PR/issue titles and developer names.
+- Be concrete and direct.`;
 
     const aiSummary = await aiSummarize(prompt, { maxTokens: 1500 });
 
     // Discord
     const fields = [
       { name: `DELIVERY FOCUS — per member today`, value: truncate(focusBlock, 1024), inline: false },
-      { name: `Yesterday (${yesterdayStr}) — DONE per member`, value: truncate(yesterdayDoneText, 1024), inline: false },
     ];
+    if (yesterdayDoneText) fields.push({ name: `Yesterday (${yesterdayStr}) — DONE per member`, value: truncate(yesterdayDoneText, 1024), inline: false });
     if (carryOverText) fields.push({ name: `Carrying over from yesterday`, value: truncate(carryOverText, 1024), inline: false });
-    fields.push({ name: `Today (${todayStr}) — PLAN per member`, value: truncate(todayPlanText, 1024), inline: false });
+    if (todayPlanText) fields.push({ name: `Today (${todayStr}) — PLAN per member`, value: truncate(todayPlanText, 1024), inline: false });
     fields.push({
-      name: "GitHub stats",
-      value: `Yesterday: closed ${m.issues_closed.length}, merged ${m.prs_merged.length}, commits ${m.commits.length}\nNow: in-progress ${inProgressGh.length}, blockers ${m.blocked.length}`,
+      name: "Team GitHub stats (excludes client users)",
+      value: `Yesterday: closed ${teamIssuesClosed.length}, merged ${teamMergedPrs.length}, commits ${teamCommits.length}\nNow: in-progress ${inProgressGh.length}, blockers ${m.blocked.length}`,
       inline: false,
     });
 
@@ -136,7 +194,7 @@ Be concrete and direct.`;
     // Email
     const yDoneHtml = memberRows.filter((l) => l.yesterdayDone && l.yesterdayDone !== "—").length
       ? `<ul>${memberRows.filter((l) => l.yesterdayDone && l.yesterdayDone !== "—").map((l) => `<li><b>${esc(l.member)}</b><br><pre style="font-family:inherit;white-space:pre-wrap;margin:4px 0">${esc(l.yesterdayDone)}</pre></li>`).join("")}</ul>`
-      : `<p><em>No DONE entries in sheet for ${yesterdayStr}.</em></p>`;
+      : "";
     const tPlanHtml = memberRows.filter((l) => l.todayPlan && l.todayPlan !== "—").length
       ? `<ul>${memberRows.filter((l) => l.todayPlan && l.todayPlan !== "—").map((l) => `<li><b>${esc(l.member)}</b><br><pre style="font-family:inherit;white-space:pre-wrap;margin:4px 0">${esc(l.todayPlan)}</pre></li>`).join("")}</ul>`
       : `<p><em>No team plans for ${todayStr} yet.</em></p>`;

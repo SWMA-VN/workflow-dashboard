@@ -23,14 +23,35 @@ export default async function handler(req, res) {
     const dateStr = formatSheetDate(target);
     const isoStr = target.toISOString().slice(0, 10);
 
+    // === Config: team mapping + excluded users (clients, bots) ===
+    const memberMap = (() => {
+      try { return JSON.parse(process.env.MEMBER_MAP || "{}"); }
+      catch { return {}; }
+    })();
+    const defaultMap = {
+      "Duong N.": "sexybells",
+      "Huy Huynh": "huynhtuanhuy",
+      "Nathan C.": "khanwilson",
+      "Hai L.": "hailh14",
+      "CuongNQ": "cuonghanc",
+    };
+    const finalMap = Object.keys(memberMap).length ? memberMap : defaultMap;
+    const excludedUsers = (process.env.EXCLUDED_USERS || "vamadeus").split(",").map((s) => s.trim().toLowerCase());
+
     // === Sheet: today's afternoon section ===
     const { day, error: sheetError } = await getDayActivity(target);
     const afternoon = (day && day.afternoon) || {};
     const morning = (day && day.morning) || {};
-    const allMembers = Array.from(new Set([...Object.keys(afternoon), ...Object.keys(morning)]));
 
     // === GitHub: today's activity ===
     const m = await getMetrics({ days: 1 });
+
+    // Exclude client/non-team users from team aggregate counts
+    const isExcluded = (login) => login && excludedUsers.includes(login.toLowerCase());
+    const teamMergedPrs = m.prs_merged.filter((p) => !isExcluded(p.user?.login));
+    const teamCommits = m.commits.filter((c) => !isExcluded(c.author?.login || c.commit?.author?.name));
+    const teamIssuesClosed = m.issues_closed.filter((i) => !(i.assignees || []).every((a) => isExcluded(a.login)));
+
     const openIssues = await listIssues({ state: "open" });
     const realIssues = openIssues.filter((i) => !i.pull_request);
     const inProgressGh = realIssues.filter((i) => (i.assignees || []).length > 0);
@@ -42,28 +63,70 @@ export default async function handler(req, res) {
         days: Math.floor((Date.now() - new Date(i.updated_at).getTime()) / 86400000),
       }));
 
-    // Build per-member lines + delivery status
-    const memberLines = allMembers.map((mb) => {
+    // Build GitHub activity map per user (for smart fallback when sheet is empty)
+    const ghActByUser = {};
+    const ensure = (login) => { if (!ghActByUser[login]) ghActByUser[login] = { merged: [], commits: 0, closed: [] }; };
+    for (const p of teamMergedPrs) if (p.user?.login) { ensure(p.user.login); ghActByUser[p.user.login].merged.push(p); }
+    for (const c of teamCommits) {
+      const login = c.author?.login || c.commit?.author?.name;
+      if (login) { ensure(login); ghActByUser[login].commits++; }
+    }
+    for (const i of teamIssuesClosed) for (const a of (i.assignees || [])) {
+      if (a.login) { ensure(a.login); ghActByUser[a.login].closed.push(i); }
+    }
+
+    // Per-member open assigned issues (for WIP fallback)
+    const openByUser = {};
+    for (const i of realIssues) for (const a of (i.assignees || [])) {
+      if (isExcluded(a.login)) continue;
+      if (!openByUser[a.login]) openByUser[a.login] = [];
+      openByUser[a.login].push(i);
+    }
+
+    // Build per-member lines — ALWAYS from team config (not sheet), combining sheet + GitHub
+    const memberLines = Object.keys(finalMap).map((mb) => {
+      const ghUser = finalMap[mb];
       const aft = afternoon[mb] || {};
       const morn = morning[mb] || {};
-      const done = aft.done || "—";
-      const inProg = aft.inProgress || "—";
       const issues = aft.issues || morn.issues || "";
+      const ghAct = ghActByUser[ghUser] || { merged: [], commits: 0, closed: [] };
+      const ghOpen = openByUser[ghUser] || [];
 
-      // Delivery status per member (deterministic, no AI needed)
+      // DONE: prefer sheet, fallback to GitHub activity
+      let done = aft.done || "";
+      if (!done || done === "—") {
+        const parts = [];
+        if (ghAct.merged.length) parts.push(...ghAct.merged.slice(0, 3).map((p) => `Merged PR #${p.number}: ${p.title}`));
+        if (ghAct.closed.length) parts.push(...ghAct.closed.slice(0, 2).map((i) => `Closed #${i.number}: ${i.title}`));
+        if (!parts.length && ghAct.commits > 0) parts.push(`${ghAct.commits} commits (no PR merged yet)`);
+        done = parts.join("\n") || "—";
+      }
+
+      // IN PROGRESS: prefer sheet, fallback to currently assigned open issues
+      let inProg = aft.inProgress || "";
+      if (!inProg || inProg === "—") {
+        if (ghOpen.length) inProg = ghOpen.slice(0, 3).map((i) => `#${i.number}: ${i.title}`).join("\n");
+        else inProg = "—";
+      }
+
+      // Status
+      const hasDone = done && done !== "—";
+      const hasWip = inProg && inProg !== "—";
       let status, statusTag;
-      if (done !== "—" && inProg === "—") { status = "shipped, capacity free"; statusTag = "[DONE]"; }
-      else if (done !== "—" && inProg !== "—") { status = "shipped + carrying over"; statusTag = "[DONE+WIP]"; }
-      else if (done === "—" && inProg !== "—") { status = "still working"; statusTag = "[WIP]"; }
-      else { status = "no log"; statusTag = "[--]"; }
+      if (hasDone && !hasWip) { status = "shipped, capacity free"; statusTag = "[DONE]"; }
+      else if (hasDone && hasWip) { status = "shipped + carrying over"; statusTag = "[DONE+WIP]"; }
+      else if (!hasDone && hasWip) { status = "still working"; statusTag = "[WIP]"; }
+      else if (ghAct.commits > 0) { status = `active (${ghAct.commits} commits, no merges yet)`; statusTag = "[ACTIVE]"; }
+      else { status = "quiet today"; statusTag = "[QUIET]"; }
       if (issues) statusTag = "[ISSUE]";
 
-      return { member: mb, done, inProgress: inProg, issues, status, statusTag };
+      return { member: mb, done, inProgress: inProg, issues, status, statusTag, ghCommits: ghAct.commits };
     });
 
     const doneCount = memberLines.filter((l) => l.done && l.done !== "—").length;
     const wipCount = memberLines.filter((l) => l.inProgress && l.inProgress !== "—").length;
     const issuesCount = memberLines.filter((l) => l.issues).length;
+    const teamCommitsTotal = memberLines.reduce((s, l) => s + (l.ghCommits || 0), 0);
 
     // Team focus snapshot (deterministic, no AI)
     const focusBlock = memberLines.map((l) => {
@@ -72,28 +135,30 @@ export default async function handler(req, res) {
     }).join("\n\n");
 
     // ===== Build Discord post =====
-    const sheetDoneText = memberLines
+    // Combined sheet + GitHub per-member (always has content, never "no entry")
+    const doneText = memberLines
       .filter((l) => l.done && l.done !== "—")
       .map((l) => `**${l.member}**\n> ${truncate(l.done, 280)}`)
-      .join("\n\n") || "_no team done entries in sheet for this day_";
+      .join("\n\n");
 
-    const sheetWipText = memberLines
+    const wipText = memberLines
       .filter((l) => l.inProgress && l.inProgress !== "—")
       .map((l) => `**${l.member}**\n> ${truncate(l.inProgress, 280)}`)
-      .join("\n\n") || "_nothing in-progress in sheet_";
+      .join("\n\n");
 
     const issuesText = memberLines
       .filter((l) => l.issues)
       .map((l) => `[ISSUE] **${l.member}**: ${truncate(l.issues, 200)}`)
       .join("\n");
 
-    const ghDoneList = m.prs_merged.slice(0, 5).concat(m.issues_closed.slice(0, 5))
+    // Team-only GitHub aggregates (excludes client users like @vamadeus)
+    const ghDoneList = teamMergedPrs.slice(0, 5).concat(teamIssuesClosed.slice(0, 5))
       .map((x) => `- [#${x.number}](${x.html_url}) ${truncate(x.title || "", 70)}`)
-      .join("\n") || "_nothing closed/merged on this date in GitHub_";
+      .join("\n");
 
     const ghWipList = inProgressGh.slice(0, 8)
       .map((i) => `- [#${i.number}](${i.html_url}) ${truncate(i.title, 60)} — ${(i.assignees || []).map((a) => `@${a.login}`).join(", ")}`)
-      .join("\n") || "_no GitHub WIP_";
+      .join("\n");
 
     const staleList = stale.slice(0, 5)
       .map((s) => `[STALE ${s.days}d] [#${s.number}](${s.url}) ${truncate(s.title, 55)} — ${s.assignees.map((a) => `@${a}`).join(", ") || "_unassigned_"}`)
@@ -102,42 +167,41 @@ export default async function handler(req, res) {
     // === AI summary ===
     const prompt = `You are a PM assistant writing the END-OF-DAY check-in for ${projectName} on ${dateStr} (Hanoi).
 
-TEAM SHEET — ${allMembers.length} members logged today:
+TEAM ACTIVITY (combined sheet log + GitHub activity — NEVER say "empty" or "no data", ALWAYS analyze what happened):
 
-DONE today (per member):
-${memberLines.filter((l) => l.done && l.done !== "—").map((l) => `${l.member}: ${l.done}`).join("\n") || "(no team done entries)"}
+Per-member (sheet entries take priority, GitHub activity fills gaps):
+${memberLines.map((l) => `  ${l.member} [${l.statusTag}] ${l.status}: done="${l.done}", wip="${l.inProgress}", commits=${l.ghCommits}`).join("\n")}
 
-IN PROGRESS (rolling tomorrow):
-${memberLines.filter((l) => l.inProgress && l.inProgress !== "—").map((l) => `${l.member}: ${l.inProgress}`).join("\n") || "(none)"}
-
-ISSUES RAISED:
-${memberLines.filter((l) => l.issues).map((l) => `${l.member}: ${l.issues}`).join("\n") || "(none)"}
-
-GITHUB on this date:
-- Issues closed: ${m.issues_closed.length}
-- PRs merged: ${m.prs_merged.length}
-- Commits: ${m.commits.length}
+Team-only GitHub activity today (excludes client users):
+- PRs merged: ${teamMergedPrs.length} — titles: ${teamMergedPrs.slice(0, 8).map((p) => p.title).join(" | ")}
+- Issues closed: ${teamIssuesClosed.length} — titles: ${teamIssuesClosed.slice(0, 5).map((i) => i.title).join(" | ")}
+- Commits: ${teamCommitsTotal}
 - Currently in progress: ${inProgressGh.length}
 - Stale (3+ days): ${stale.length}
 - Blockers: ${m.blocked.length}
 
 Write 5-7 sentences:
-1. What got shipped today (be SPECIFIC, mention member names + features)
-2. What's rolling to tomorrow (key WIP)
-3. Any risks or blockers to flag
-4. One micro-celebration
-Honest tone — if light, say so.`;
+1. What each member shipped today (mention names + actual feature/work, based on PR titles + commits)
+2. What's rolling into tomorrow (key WIP)
+3. Any risks or stale items to flag
+4. One micro-celebration (specific)
+
+IMPORTANT RULES:
+- NEVER say "sheet was empty", "no manual logs", or "no data".
+- If sheet is empty, analyze from PR titles, commits, and assignments instead.
+- Always give a concrete summary based on the activity that DID happen.
+- Mention specific PR titles and people by name.`;
 
     const aiSummary = await aiSummarize(prompt, { maxTokens: 1500 });
 
     const fields = [
-      { name: `DELIVERY FOCUS — per member`, value: truncate(focusBlock, 1024), inline: false },
-      { name: `DONE today — from sheet (${doneCount} members)`, value: truncate(sheetDoneText, 1024), inline: false },
-      { name: `IN PROGRESS — rolling tomorrow (${wipCount} members)`, value: truncate(sheetWipText, 1024), inline: false },
+      { name: `DELIVERY FOCUS — per member (${memberLines.length})`, value: truncate(focusBlock, 1024), inline: false },
     ];
+    if (doneText) fields.push({ name: `DONE today (${doneCount} members)`, value: truncate(doneText, 1024), inline: false });
+    if (wipText) fields.push({ name: `IN PROGRESS — rolling tomorrow (${wipCount} members)`, value: truncate(wipText, 1024), inline: false });
     if (issuesText) fields.push({ name: `Issues raised (${issuesCount})`, value: truncate(issuesText, 1024), inline: false });
-    fields.push({ name: "GitHub — closed/merged on this date", value: truncate(ghDoneList, 1024), inline: false });
-    fields.push({ name: `GitHub — currently in-progress (${inProgressGh.length})`, value: truncate(ghWipList, 1024), inline: false });
+    if (ghDoneList) fields.push({ name: `Team shipped today (${teamMergedPrs.length} PRs · ${teamCommitsTotal} commits)`, value: truncate(ghDoneList, 1024), inline: false });
+    if (ghWipList) fields.push({ name: `Currently in-progress (${inProgressGh.length})`, value: truncate(ghWipList, 1024), inline: false });
     if (staleList) fields.push({ name: `Stale items (${stale.length})`, value: truncate(staleList, 1024), inline: false });
 
     await postDiscord({
@@ -154,12 +218,12 @@ Honest tone — if light, say so.`;
 
     // ===== Email =====
     const sheetDoneHtml = memberLines.filter((l) => l.done && l.done !== "—").length
-      ? `<ul>${memberLines.filter((l) => l.done && l.done !== "—").map((l) => `<li><b>${esc(l.member)}</b><br><pre style="font-family:inherit;white-space:pre-wrap;margin:4px 0">${esc(l.done)}</pre></li>`).join("")}</ul>`
-      : "<p><em>No DONE entries from team in sheet for this date.</em></p>";
+      ? `<ul>${memberLines.filter((l) => l.done && l.done !== "—").map((l) => `<li><b>[${esc(l.statusTag.replace(/[\[\]]/g,""))}] ${esc(l.member)}</b><br><pre style="font-family:inherit;white-space:pre-wrap;margin:4px 0">${esc(l.done)}</pre></li>`).join("")}</ul>`
+      : "";
 
     const sheetWipHtml = memberLines.filter((l) => l.inProgress && l.inProgress !== "—").length
       ? `<ul>${memberLines.filter((l) => l.inProgress && l.inProgress !== "—").map((l) => `<li><b>${esc(l.member)}</b><br><pre style="font-family:inherit;white-space:pre-wrap;margin:4px 0">${esc(l.inProgress)}</pre></li>`).join("")}</ul>`
-      : "<p><em>No IN-PROGRESS entries from team for this date.</em></p>";
+      : "";
 
     const issuesHtml = memberLines.filter((l) => l.issues).length
       ? `<ul>${memberLines.filter((l) => l.issues).map((l) => `<li><b>${esc(l.member)}</b>: ${esc(l.issues)}</li>`).join("")}</ul>`
@@ -175,21 +239,18 @@ Honest tone — if light, say so.`;
       <h3>🎯 Delivery focus per member</h3>
       <ul>${memberLines.map((l) => `<li><b>[${esc(l.statusTag.replace(/[\[\]]/g, ''))}] ${esc(l.member)}</b> — <em>${esc(l.status)}</em><br>Focus: ${esc(pickFocus(l.done, l.inProgress))}</li>`).join("")}</ul>
 
-      <h3>✅ Done today (per team member)</h3>
-      ${sheetDoneHtml}
-
-      <h3>🔄 In Progress → tomorrow</h3>
-      ${sheetWipHtml}
+      ${sheetDoneHtml ? `<h3>Done today (per team member)</h3>${sheetDoneHtml}` : ""}
+      ${sheetWipHtml ? `<h3>In Progress → tomorrow</h3>${sheetWipHtml}` : ""}
 
       ${issuesHtml ? `<h3>🚨 Issues raised</h3>${issuesHtml}` : ""}
 
       ${sheetError ? `<p style="color:#888"><em>Sheet error: ${esc(sheetError)}</em></p>` : ""}
 
-      <h3>🐙 GitHub on ${isoStr}</h3>
+      <h3>Team activity on ${isoStr} (excludes client users)</h3>
       <table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse">
-        <tr><td>Issues closed</td><td><b>${m.issues_closed.length}</b></td></tr>
-        <tr><td>PRs merged</td><td><b>${m.prs_merged.length}</b></td></tr>
-        <tr><td>Commits</td><td><b>${m.commits.length}</b></td></tr>
+        <tr><td>Issues closed (team)</td><td><b>${teamIssuesClosed.length}</b></td></tr>
+        <tr><td>PRs merged (team)</td><td><b>${teamMergedPrs.length}</b></td></tr>
+        <tr><td>Commits (team)</td><td><b>${teamCommitsTotal}</b></td></tr>
         <tr><td>Currently in progress</td><td><b>${inProgressGh.length}</b></td></tr>
         <tr><td>Stale (3+ days)</td><td><b>${stale.length}</b></td></tr>
         <tr><td>Blockers</td><td><b style="color:${m.blocked.length ? "red" : "green"}">${m.blocked.length}</b></td></tr>
@@ -202,19 +263,22 @@ Honest tone — if light, say so.`;
     res.json({
       ok: true,
       target_date: dateStr,
-      members_in_sheet: allMembers.length,
-      sheet_done: doneCount,
-      sheet_wip: wipCount,
-      sheet_issues: issuesCount,
+      team_members: Object.keys(finalMap).length,
+      done_count: doneCount,
+      wip_count: wipCount,
+      issues_count: issuesCount,
       sheet_error: sheetError || null,
-      github: {
-        closed: m.issues_closed.length,
-        merged: m.prs_merged.length,
-        commits: m.commits.length,
+      team_github: {
+        closed: teamIssuesClosed.length,
+        merged: teamMergedPrs.length,
+        commits: teamCommitsTotal,
+      },
+      all_github: {
         in_progress: inProgressGh.length,
         stale: stale.length,
         blocked: m.blocked.length,
       },
+      excluded_users: excludedUsers,
       summary_excerpt: aiSummary.slice(0, 200),
     });
   } catch (e) {
