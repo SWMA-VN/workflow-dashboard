@@ -1,6 +1,7 @@
-// Vercel Cron — runs 17:00 HKT Friday (09:00 UTC).
+// Vercel Cron — runs Friday 17:00 Hanoi.
+// Weekly report with velocity trend alert if velocity drops 30%+
 
-import { getMetrics } from "../../lib/github.js";
+import { getMetrics, listPulls } from "../../lib/github.js";
 import { aiSummarize } from "../../lib/ai.js";
 import { postDiscord, makeEmbed } from "../../lib/discord.js";
 import { sendEmail } from "../../lib/email.js";
@@ -12,10 +13,38 @@ export default async function handler(req, res) {
 
   try {
     const projectName = process.env.PROJECT_NAME || "Project";
-    const today = new Date().toLocaleDateString("en-CA", { timeZone: process.env.TIMEZONE || "Asia/Hong_Kong" });
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: process.env.TIMEZONE || "Asia/Ho_Chi_Minh" });
     const m = await getMetrics({ days: 7 });
-
     const velocity = m.issues_closed.length + m.prs_merged.length;
+
+    // ===== VELOCITY TREND ANALYSIS =====
+    // Compare this week vs previous weeks (rolling 30-day window for baseline)
+    const allPulls = await listPulls({ state: "closed", days: 35 });
+    const merged = allPulls.filter((p) => p.merged_at);
+
+    const now = Date.now();
+    const week = 7 * 86400000;
+    const weeklyVelocity = [];
+    for (let i = 0; i < 4; i++) {
+      const end = now - i * week;
+      const start = end - week;
+      const count = merged.filter((p) => {
+        const t = new Date(p.merged_at).getTime();
+        return t >= start && t < end;
+      }).length;
+      weeklyVelocity.push(count);
+    }
+    // [thisWeek, lastWeek, 2weeksAgo, 3weeksAgo]
+    const thisWeek = weeklyVelocity[0];
+    const prevWeeksAvg = (weeklyVelocity[1] + weeklyVelocity[2] + weeklyVelocity[3]) / 3;
+    const dropPct = prevWeeksAvg > 0 ? Math.round(((prevWeeksAvg - thisWeek) / prevWeeksAvg) * 100) : 0;
+    const hasVelocityDrop = prevWeeksAvg >= 2 && dropPct >= 30;
+
+    const trendText = hasVelocityDrop
+      ? `**Velocity DROP: -${dropPct}%** vs 3-week avg (${thisWeek} this week vs ${prevWeeksAvg.toFixed(1)} avg). Investigate blockers + on-call absences.`
+      : dropPct <= -20
+      ? `Velocity UP +${Math.abs(dropPct)}% vs 3-week avg. Strong week.`
+      : `Velocity stable: ${thisWeek} this week vs ${prevWeeksAvg.toFixed(1)} avg.`;
 
     const prompt = `You are a PM assistant. Write a weekly status update (5-7 sentences) for stakeholders.
 
@@ -23,37 +52,59 @@ Data this week:
 - Issues opened: ${m.issues_opened.length}
 - Issues closed: ${m.issues_closed.length}
 - PRs merged: ${m.prs_merged.length}
-- Currently in progress: ${m.in_progress.length}
+- In progress: ${m.in_progress.length}
 - Blocked: ${m.blocked.length}
 - Commits: ${m.commits.length}
+
+Velocity trend: ${trendText}
+Weekly PRs merged (most recent first): ${weeklyVelocity.join(", ")}
 
 Top closed: ${m.issues_closed.slice(0, 8).map((i) => i.title).join("; ")}
 Top merged PRs: ${m.prs_merged.slice(0, 8).map((p) => p.title).join("; ")}
 Active blockers: ${m.blocked.map((i) => i.title).join("; ")}
-
 Activity by person: ${JSON.stringify(m.by_person)}
 
-Cover: progress this week, what's shipping next week, top 3 risks. Be specific and quantitative.`;
+Cover: progress this week, what's shipping next week, top 3 risks. If velocity dropped, identify likely cause.`;
 
     const summary = await aiSummarize(prompt, { maxTokens: 2048 });
 
-    await postDiscord({
-      content: `**📈 Weekly wrap-up for ${projectName} — week ending ${today}**`,
-      embeds: [
-        makeEmbed({
-          title: `📈 Weekly Report — ${today}`,
-          description: summary.slice(0, 2000),
-          fields: [
-            { name: "🚀 Velocity", value: String(velocity), inline: true },
-            { name: "✅ Closed", value: String(m.issues_closed.length), inline: true },
-            { name: "🔀 Merged", value: String(m.prs_merged.length), inline: true },
-            { name: "⚙️ In Progress", value: String(m.in_progress.length), inline: true },
-            { name: "🚨 Blockers", value: String(m.blocked.length), inline: true },
-            { name: "💻 Commits", value: String(m.commits.length), inline: true },
-          ],
-          color: m.blocked.length >= 2 ? 0xE74C3C : 0x27AE60,
-        }),
+    // Discord: alert embed + weekly embed
+    const embeds = [];
+
+    if (hasVelocityDrop) {
+      embeds.push(makeEmbed({
+        title: `VELOCITY DROP ALERT — ${dropPct}% below average`,
+        description: `**This week:** ${thisWeek} PRs merged\n**3-week avg:** ${prevWeeksAvg.toFixed(1)} PRs\n**Drop:** -${dropPct}%\n\nLikely causes to investigate: open blockers, team absences, large ongoing work, sprint scope mismatch.`,
+        fields: [
+          { name: "This week", value: String(thisWeek), inline: true },
+          { name: "Last week", value: String(weeklyVelocity[1]), inline: true },
+          { name: "2 weeks ago", value: String(weeklyVelocity[2]), inline: true },
+          { name: "3 weeks ago", value: String(weeklyVelocity[3]), inline: true },
+          { name: "Blockers open", value: String(m.blocked.length), inline: true },
+          { name: "In progress", value: String(m.in_progress.length), inline: true },
+        ],
+        color: 0xE74C3C,
+      }));
+    }
+
+    embeds.push(makeEmbed({
+      title: `Weekly Report — ${today}`,
+      description: summary.slice(0, 2000),
+      fields: [
+        { name: "Velocity (this week)", value: String(velocity), inline: true },
+        { name: "Closed", value: String(m.issues_closed.length), inline: true },
+        { name: "Merged", value: String(m.prs_merged.length), inline: true },
+        { name: "In Progress", value: String(m.in_progress.length), inline: true },
+        { name: "Blockers", value: String(m.blocked.length), inline: true },
+        { name: "Commits", value: String(m.commits.length), inline: true },
+        { name: "Trend", value: trendText.replace(/\*\*/g, ""), inline: false },
       ],
+      color: hasVelocityDrop ? 0xE74C3C : (m.blocked.length >= 2 ? 0xF59E0B : 0x27AE60),
+    }));
+
+    await postDiscord({
+      content: `**Weekly wrap-up for ${projectName} — week ending ${today}**`,
+      embeds,
     });
 
     const personRows = Object.entries(m.by_person)
@@ -61,32 +112,60 @@ Cover: progress this week, what's shipping next week, top 3 risks. Be specific a
       .map(([p, s]) => `<tr><td>${p}</td><td>${s.commits}</td><td>${s.prs}</td></tr>`)
       .join("");
 
+    const alertHtml = hasVelocityDrop
+      ? `<div style="background:#fee2e2;border-left:4px solid #dc2626;padding:14px;margin:16px 0">
+           <b style="color:#dc2626">VELOCITY DROP ALERT — ${dropPct}% below average</b><br>
+           This week: <b>${thisWeek}</b> PRs · 3-week avg: <b>${prevWeeksAvg.toFixed(1)}</b> PRs<br>
+           Investigate blockers + absences.
+         </div>`
+      : "";
+
     const html = `
       <html><body style="font-family: Arial, sans-serif;">
-      <h2 style="color:#1F4E79">📈 Weekly Report — ${projectName}</h2>
+      <h2 style="color:#1F4E79">Weekly Report — ${projectName}</h2>
       <p><b>Week ending ${today}</b></p>
+      ${alertHtml}
       <h3>Executive Summary</h3>
       <p style="background:#f0f4f8;padding:12px;border-left:4px solid #1F4E79">${summary}</p>
       <h3>Velocity Metrics</h3>
       <table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse">
-        <tr><td><b>Velocity</b></td><td>${velocity}</td></tr>
+        <tr><td><b>Velocity (this week)</b></td><td>${velocity}</td></tr>
         <tr><td>Issues closed</td><td>${m.issues_closed.length}</td></tr>
         <tr><td>PRs merged</td><td>${m.prs_merged.length}</td></tr>
         <tr><td>In progress</td><td>${m.in_progress.length}</td></tr>
         <tr><td>Blockers</td><td style="color:${m.blocked.length ? "red" : "green"}"><b>${m.blocked.length}</b></td></tr>
         <tr><td>Commits</td><td>${m.commits.length}</td></tr>
       </table>
+      <h3>Weekly Velocity Trend (PRs merged per week)</h3>
+      <table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse">
+        <tr><th>This week</th><th>Last week</th><th>2 weeks ago</th><th>3 weeks ago</th><th>3-week avg</th><th>vs avg</th></tr>
+        <tr>
+          <td><b>${weeklyVelocity[0]}</b></td>
+          <td>${weeklyVelocity[1]}</td>
+          <td>${weeklyVelocity[2]}</td>
+          <td>${weeklyVelocity[3]}</td>
+          <td>${prevWeeksAvg.toFixed(1)}</td>
+          <td style="color:${hasVelocityDrop ? 'red' : 'green'}"><b>${dropPct <= 0 ? "+" : "-"}${Math.abs(dropPct)}%</b></td>
+        </tr>
+      </table>
       <h3>Team Contributions</h3>
       <table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse">
         <tr><th>Person</th><th>Commits</th><th>PRs</th></tr>
         ${personRows}
       </table>
-      <hr><p style="color:#888;font-size:12px">Auto-generated. <a href="https://${process.env.VERCEL_URL || "your-pm.vercel.app"}">Open dashboard</a></p>
+      <hr><p style="color:#888;font-size:12px">Auto-generated. <a href="https://workflowview.vercel.app">Open dashboard</a></p>
       </body></html>
     `;
-    await sendEmail({ subject: `📈 Weekly Report — ${projectName} — ${today}`, html });
+    await sendEmail({ subject: `Weekly Report — ${projectName} — ${today}${hasVelocityDrop ? " [VELOCITY DROP]" : ""}`, html });
 
-    res.json({ ok: true, velocity, summary });
+    res.json({
+      ok: true,
+      velocity,
+      weekly_velocity: weeklyVelocity,
+      prev_avg: prevWeeksAvg,
+      drop_pct: dropPct,
+      has_velocity_drop: hasVelocityDrop,
+    });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: e.message });

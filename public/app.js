@@ -215,7 +215,7 @@ async function loadSheets() {
 
 async function loadDiscord() {
   try {
-    const r = await fetch("/api/discord-info");
+    const r = await fetch("/api/config?type=discord-info");
     if (r.ok) {
       const { server_id } = await r.json();
       if (server_id) {
@@ -232,7 +232,7 @@ async function loadDiscord() {
 
 async function loadAssign() {
   try {
-    const r = await fetch("/api/team-info");
+    const r = await fetch("/api/config?type=team-info");
     if (r.ok) {
       const data = await r.json();
       document.getElementById("team-config").textContent = JSON.stringify(data.team, null, 2);
