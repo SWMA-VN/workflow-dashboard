@@ -180,28 +180,24 @@ Team-only GitHub activity today (excludes client users):
 - Stale (3+ days): ${stale.length}
 - Blockers: ${m.blocked.length}
 
-Write 5-7 sentences:
-1. What each member shipped today (mention names + actual feature/work, based on PR titles + commits)
-2. What's rolling into tomorrow (key WIP)
-3. Any risks or stale items to flag
-4. One micro-celebration (specific)
+Write EXACTLY 3 short sentences, max 40 words total:
+1. What shipped (names + features, one sentence)
+2. Key WIP rolling tomorrow (one sentence)
+3. One risk or highlight (one sentence)
 
-IMPORTANT RULES:
-- NEVER say "sheet was empty", "no manual logs", or "no data".
-- If sheet is empty, analyze from PR titles, commits, and assignments instead.
-- Always give a concrete summary based on the activity that DID happen.
-- Mention specific PR titles and people by name.`;
+RULES:
+- MAX 3 sentences. No more.
+- Never say "sheet empty", "no data", "stale items", "micro-celebration".
+- Be concrete: names + features. No filler.`;
 
     const aiSummary = await aiSummarize(prompt, { maxTokens: 1500 });
 
+    // EOD format: AI summary (max 3 lines) + delivery focus + done + wip. Nothing else.
     const fields = [
-      { name: `DELIVERY FOCUS — per member (${memberLines.length})`, value: truncate(focusBlock, 1024), inline: false },
+      { name: `Delivery Focus (${memberLines.length})`, value: truncate(focusBlock, 1024), inline: false },
     ];
-    if (doneText) fields.push({ name: `DONE today (${doneCount} members)`, value: truncate(doneText, 1024), inline: false });
-    if (wipText) fields.push({ name: `IN PROGRESS — rolling tomorrow (${wipCount} members)`, value: truncate(wipText, 1024), inline: false });
-    if (issuesText) fields.push({ name: `Issues raised (${issuesCount})`, value: truncate(issuesText, 1024), inline: false });
-    if (ghDoneList) fields.push({ name: `Team shipped today (${teamMergedPrs.length} PRs · ${teamCommitsTotal} commits)`, value: truncate(ghDoneList, 1024), inline: false });
-    if (ghWipList) fields.push({ name: `Currently in-progress (${inProgressGh.length})`, value: truncate(ghWipList, 1024), inline: false });
+    if (doneText) fields.push({ name: `Done (${doneCount})`, value: truncate(doneText, 1024), inline: false });
+    if (wipText) fields.push({ name: `WIP → tomorrow (${wipCount})`, value: truncate(wipText, 1024), inline: false });
 
     // ===== AUTO-CLOSE stale unassigned cards >14 days =====
     const staleUnassigned = realIssues.filter((i) =>
