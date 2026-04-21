@@ -138,9 +138,12 @@ export default async function handler(req, res) {
 
     // ===== BURNOUT DETECTOR =====
     // Flag devs with weekend or after-hours commits (10 PM - 6 AM Hanoi = 3 PM - 11 PM UTC)
+    const excludedUsers = (process.env.EXCLUDED_USERS || "vamadeus").split(",").map((s) => s.trim().toLowerCase());
     const burnoutSignals = {};
     for (const c of commits) {
       const login = c.author?.login || c.commit.author.name || "unknown";
+      // Exclude clients + bots
+      if (excludedUsers.includes(login.toLowerCase()) || login.includes("[bot]")) continue;
       if (!burnoutSignals[login]) burnoutSignals[login] = { weekend: 0, late_night: 0, total: 0 };
       burnoutSignals[login].total++;
 
