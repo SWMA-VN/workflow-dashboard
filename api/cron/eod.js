@@ -128,27 +128,22 @@ export default async function handler(req, res) {
     const issuesCount = memberLines.filter((l) => l.issues).length;
     const teamCommitsTotal = memberLines.reduce((s, l) => s + (l.ghCommits || 0), 0);
 
-    // Team focus snapshot (deterministic, no AI)
+    // Compact: one line per member
     const focusBlock = memberLines.map((l) => {
-      const focus = pickFocus(l.done, l.inProgress);
-      return `${l.statusTag} **${l.member}** — _${l.status}_\n> Focus: ${focus}`;
-    }).join("\n\n");
+      const d = l.done && l.done !== "—" ? truncate(l.done.split("\n")[0], 50) : "";
+      const w = l.inProgress && l.inProgress !== "—" ? truncate(l.inProgress.split("\n")[0], 50) : "";
+      const summary = [d, w].filter(Boolean).join(" → ") || "quiet";
+      return `${l.statusTag} **${l.member}** ${summary}`;
+    }).join("\n");
 
-    // ===== Build Discord post =====
-    // Combined sheet + GitHub per-member (always has content, never "no entry")
     const doneText = memberLines
       .filter((l) => l.done && l.done !== "—")
-      .map((l) => `**${l.member}**\n> ${truncate(l.done, 280)}`)
-      .join("\n\n");
+      .map((l) => `**${l.member}**: ${truncate(l.done.replace(/\n/g, ", "), 100)}`)
+      .join("\n");
 
     const wipText = memberLines
       .filter((l) => l.inProgress && l.inProgress !== "—")
-      .map((l) => `**${l.member}**\n> ${truncate(l.inProgress, 280)}`)
-      .join("\n\n");
-
-    const issuesText = memberLines
-      .filter((l) => l.issues)
-      .map((l) => `[ISSUE] **${l.member}**: ${truncate(l.issues, 200)}`)
+      .map((l) => `**${l.member}**: ${truncate(l.inProgress.replace(/\n/g, ", "), 100)}`)
       .join("\n");
 
     // Team-only GitHub aggregates (excludes client users like @vamadeus)
