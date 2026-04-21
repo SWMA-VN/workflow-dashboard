@@ -202,7 +202,6 @@ IMPORTANT RULES:
     if (issuesText) fields.push({ name: `Issues raised (${issuesCount})`, value: truncate(issuesText, 1024), inline: false });
     if (ghDoneList) fields.push({ name: `Team shipped today (${teamMergedPrs.length} PRs · ${teamCommitsTotal} commits)`, value: truncate(ghDoneList, 1024), inline: false });
     if (ghWipList) fields.push({ name: `Currently in-progress (${inProgressGh.length})`, value: truncate(ghWipList, 1024), inline: false });
-    if (staleList) fields.push({ name: `Stale items (${stale.length})`, value: truncate(staleList, 1024), inline: false });
 
     // ===== AUTO-CLOSE stale unassigned cards >14 days =====
     const staleUnassigned = realIssues.filter((i) =>
@@ -228,33 +227,6 @@ IMPORTANT RULES:
       }
       fields.push({ name: `Auto-closed (${staleUnassigned.length} stale unassigned)`, value: staleUnassigned.slice(0, 5).map((i) => `#${i.number} ${i.title.slice(0, 60)}`).join("\n"), inline: false });
     }
-
-    // ===== AUTO-PING: PRs waiting >2 days for review =====
-    const longPrs = inProgressGh.length; // Already have open issues; need open PRs
-    // Fetch open PRs for PR-ping
-    let prPingText = "";
-    try {
-      const { listPulls } = await import("../../lib/github.js");
-      const openPrs = await listPulls({ state: "open", days: 30 });
-      const longWait = openPrs.filter((p) => !p.draft && (Date.now() - new Date(p.created_at).getTime()) > 2 * 86400000);
-      if (longWait.length) {
-        const pingLines = longWait.slice(0, 5).map((p) => {
-          const days = ((Date.now() - new Date(p.created_at).getTime()) / 86400000).toFixed(1);
-          const repo = p._repo || "";
-          return `[#${p.number}](${p.html_url}) ${p.title.slice(0, 50)} — @${p.user?.login || "?"} — ${days}d`;
-        });
-        prPingText = pingLines.join("\n");
-        fields.push({ name: `PRs waiting for review (${longWait.length})`, value: truncate(prPingText, 1024), inline: false });
-        // Also post separate ping
-        await postDiscord({
-          embeds: [makeEmbed({
-            title: `${longWait.length} PR${longWait.length === 1 ? "" : "s"} waiting >2 days for review`,
-            description: prPingText,
-            color: 0xF59E0B,
-          })],
-        });
-      }
-    } catch (e) { /* skip PR ping if fails */ }
 
     await postDiscord({
       content: `**End of Day Report — ${projectName}** — ${dateStr} (Hanoi)`,
