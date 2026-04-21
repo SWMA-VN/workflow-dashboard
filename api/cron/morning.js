@@ -119,15 +119,23 @@ export default async function handler(req, res) {
       return { member: mb, yesterdayDone: yDone, yesterdayWip: yWip, todayPlan: tToday, todayYesterdayRecap: (tMorn[mb] || {}).yesterday || "—", status, statusTag, ghCommits: ghAct.commits };
     });
 
-    // Build COMPACT per-member block: all info in one section
-    const teamBlock = memberRows.map((l) => {
-      const lines = [`${l.statusTag} **${l.member}**`];
-      if (l.yesterdayDone && l.yesterdayDone !== "—") lines.push(`  Yesterday: ${truncate(l.yesterdayDone, 120)}`);
-      if (l.todayPlan && l.todayPlan !== "—") lines.push(`  Today: ${truncate(l.todayPlan, 120)}`);
-      if (l.yesterdayWip && l.yesterdayWip !== "—") lines.push(`  Carry: ${truncate(l.yesterdayWip, 100)}`);
-      if (lines.length === 1) lines.push(`  ${l.ghCommits > 0 ? `${l.ghCommits} commits yesterday` : "quiet"}`);
-      return lines.join("\n");
+    // DELIVERY FOCUS — per member (status + focus theme)
+    const focusBlock = memberRows.map((l) => {
+      const focus = pickFocus(l.todayPlan !== "—" ? l.todayPlan : (l.yesterdayWip !== "—" ? l.yesterdayWip : l.yesterdayDone));
+      return `${l.statusTag} **${l.member}** — _${l.status}_\n> ${focus}`;
     }).join("\n\n");
+
+    // YESTERDAY DONE — per member
+    const yesterdayDoneBlock = memberRows
+      .filter((l) => l.yesterdayDone && l.yesterdayDone !== "—")
+      .map((l) => `**${l.member}**\n> ${truncate(l.yesterdayDone, 200)}`)
+      .join("\n\n");
+
+    // TODAY PLAN — per member (compact)
+    const todayPlanBlock = memberRows
+      .filter((l) => l.todayPlan && l.todayPlan !== "—")
+      .map((l) => `**${l.member}**: ${truncate(l.todayPlan, 120)}`)
+      .join("\n");
 
     // AI brief — always analyzes GitHub activity if sheet is empty
     const prompt = `You are a PM assistant writing the MORNING briefing for ${projectName}.
@@ -151,12 +159,14 @@ Be specific. Never say "no data". Use GitHub activity.`;
 
     const aiSummary = await aiSummarize(prompt, { maxTokens: 1500 });
 
-    // Discord — compact: AI summary + one team block + stats line
+    // Discord: AI summary + focus + yesterday done + today plan + stats
     const statsLine = `closed ${teamIssuesClosed.length} | merged ${teamMergedPrs.length} | commits ${teamCommits.length} | WIP ${inProgressGh.length} | blockers ${m.blocked.length}`;
     const fields = [
-      { name: `Team Status (yesterday ${yesterdayStr} → today ${todayStr})`, value: truncate(teamBlock, 1024), inline: false },
-      { name: "GitHub", value: statsLine, inline: false },
+      { name: `Delivery Focus — per member today`, value: truncate(focusBlock, 1024), inline: false },
     ];
+    if (yesterdayDoneBlock) fields.push({ name: `Yesterday (${yesterdayStr}) — Done per member`, value: truncate(yesterdayDoneBlock, 1024), inline: false });
+    if (todayPlanBlock) fields.push({ name: `Today (${todayStr}) — Plan`, value: truncate(todayPlanBlock, 1024), inline: false });
+    fields.push({ name: "GitHub", value: statsLine, inline: false });
 
     await postDiscord({
       content: `**Morning Briefing — ${projectName}** — ${todayStr} (Hanoi)`,
