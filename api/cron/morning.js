@@ -119,25 +119,15 @@ export default async function handler(req, res) {
       return { member: mb, yesterdayDone: yDone, yesterdayWip: yWip, todayPlan: tToday, todayYesterdayRecap: (tMorn[mb] || {}).yesterday || "—", status, statusTag, ghCommits: ghAct.commits };
     });
 
-    const focusBlock = memberRows.map((l) => {
-      const focus = pickFocus(l.todayPlan !== "—" ? l.todayPlan : (l.yesterdayWip !== "—" ? l.yesterdayWip : l.yesterdayDone));
-      return `${l.statusTag} **${l.member}** — _${l.status}_\n> Focus: ${focus}`;
+    // Build COMPACT per-member block: all info in one section
+    const teamBlock = memberRows.map((l) => {
+      const lines = [`${l.statusTag} **${l.member}**`];
+      if (l.yesterdayDone && l.yesterdayDone !== "—") lines.push(`  Yesterday: ${truncate(l.yesterdayDone, 120)}`);
+      if (l.todayPlan && l.todayPlan !== "—") lines.push(`  Today: ${truncate(l.todayPlan, 120)}`);
+      if (l.yesterdayWip && l.yesterdayWip !== "—") lines.push(`  Carry: ${truncate(l.yesterdayWip, 100)}`);
+      if (lines.length === 1) lines.push(`  ${l.ghCommits > 0 ? `${l.ghCommits} commits yesterday` : "quiet"}`);
+      return lines.join("\n");
     }).join("\n\n");
-
-    const yesterdayDoneText = memberRows
-      .filter((l) => l.yesterdayDone && l.yesterdayDone !== "—")
-      .map((l) => `**${l.member}**\n> ${truncate(l.yesterdayDone, 280)}`)
-      .join("\n\n");
-
-    const todayPlanText = memberRows
-      .filter((l) => l.todayPlan && l.todayPlan !== "—")
-      .map((l) => `**${l.member}**\n> ${truncate(l.todayPlan, 280)}`)
-      .join("\n\n");
-
-    const carryOverText = memberRows
-      .filter((l) => l.yesterdayWip && l.yesterdayWip !== "—")
-      .map((l) => `**${l.member}**\n> ${truncate(l.yesterdayWip, 240)}`)
-      .join("\n\n");
 
     // AI brief — always analyzes GitHub activity if sheet is empty
     const prompt = `You are a PM assistant writing the MORNING briefing for ${projectName}.
@@ -153,31 +143,20 @@ TEAM-ONLY GITHUB ACTIVITY yesterday (excludes client users):
 - Currently in-progress: ${inProgressGh.length}
 - Blockers: ${m.blocked.length}
 
-Write a 5-7 sentence morning briefing covering:
-1. What we shipped yesterday (mention specific PR titles + developers)
-2. Today's focus (top 3 priorities visible)
-3. Any risks or carryovers to watch
-4. One motivating note
-
-IMPORTANT RULES:
-- NEVER say "sheet empty", "no logs", "no entries". Always analyze GitHub activity instead.
-- Mention specific PR/issue titles and developer names.
-- Be concrete and direct.`;
+Write a COMPACT 3-4 sentence briefing:
+1. What shipped yesterday (name devs + features)
+2. Top 2-3 priorities today
+3. Any risk (blockers, stale, overload)
+Be specific. Never say "no data". Use GitHub activity.`;
 
     const aiSummary = await aiSummarize(prompt, { maxTokens: 1500 });
 
-    // Discord
+    // Discord — compact: AI summary + one team block + stats line
+    const statsLine = `closed ${teamIssuesClosed.length} | merged ${teamMergedPrs.length} | commits ${teamCommits.length} | WIP ${inProgressGh.length} | blockers ${m.blocked.length}`;
     const fields = [
-      { name: `DELIVERY FOCUS — per member today`, value: truncate(focusBlock, 1024), inline: false },
+      { name: `Team Status (yesterday ${yesterdayStr} → today ${todayStr})`, value: truncate(teamBlock, 1024), inline: false },
+      { name: "GitHub", value: statsLine, inline: false },
     ];
-    if (yesterdayDoneText) fields.push({ name: `Yesterday (${yesterdayStr}) — DONE per member`, value: truncate(yesterdayDoneText, 1024), inline: false });
-    if (carryOverText) fields.push({ name: `Carrying over from yesterday`, value: truncate(carryOverText, 1024), inline: false });
-    if (todayPlanText) fields.push({ name: `Today (${todayStr}) — PLAN per member`, value: truncate(todayPlanText, 1024), inline: false });
-    fields.push({
-      name: "Team GitHub stats (excludes client users)",
-      value: `Yesterday: closed ${teamIssuesClosed.length}, merged ${teamMergedPrs.length}, commits ${teamCommits.length}\nNow: in-progress ${inProgressGh.length}, blockers ${m.blocked.length}`,
-      inline: false,
-    });
 
     await postDiscord({
       content: `**Morning Briefing — ${projectName}** — ${todayStr} (Hanoi)`,
@@ -205,22 +184,18 @@ IMPORTANT RULES:
       <p><b>${todayStr} 10:15 (Hanoi)</b> · yesterday workday: ${yesterdayStr} · scope: ${esc(sc.label)}</p>
       <h3>AI Summary</h3>
       <p style="background:#fef3c7;padding:12px;border-left:4px solid #F59E0B;white-space:pre-wrap">${esc(aiSummary)}</p>
-      <h3>🎯 Delivery focus per member today</h3>
-      <ul>${memberRows.map((l) => `<li><b>[${esc(l.statusTag.replace(/[\[\]]/g, ''))}] ${esc(l.member)}</b> — <em>${esc(l.status)}</em><br>Focus: ${esc(pickFocus(l.todayPlan !== "—" ? l.todayPlan : (l.yesterdayWip !== "—" ? l.yesterdayWip : l.yesterdayDone)))}</li>`).join("")}</ul>
-      <h3>✅ Yesterday — DONE</h3>
-      ${yDoneHtml}
-      <h3>➡️ Today — PLAN</h3>
-      ${tPlanHtml}
-      ${sheetError ? `<p style="color:#888"><em>Sheet error: ${esc(sheetError)}</em></p>` : ""}
-      <h3>🐙 GitHub</h3>
-      <ul>
-        <li>Yesterday closed: <b>${m.issues_closed.length}</b></li>
-        <li>Yesterday merged: <b>${m.prs_merged.length}</b></li>
-        <li>Yesterday commits: <b>${m.commits.length}</b></li>
-        <li>Now in-progress: <b>${inProgressGh.length}</b></li>
-        <li>Blockers: <b style="color:${m.blocked.length ? "red" : "green"}">${m.blocked.length}</b></li>
-      </ul>
-      <hr><p style="color:#888;font-size:12px">Auto-generated · <a href="https://ethanworkflowview.vercel.app">Dashboard</a></p>
+      <h3>Team Status</h3>
+      <table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px">
+        <tr style="background:#f0f4f8"><th>Member</th><th>Status</th><th>Yesterday</th><th>Today</th></tr>
+        ${memberRows.map((l) => `<tr>
+          <td><b>${esc(l.member)}</b></td>
+          <td>${esc(l.statusTag)}</td>
+          <td>${l.yesterdayDone !== "—" ? esc(l.yesterdayDone).slice(0, 120) : "<em>—</em>"}</td>
+          <td>${l.todayPlan !== "—" ? esc(l.todayPlan).slice(0, 120) : "<em>—</em>"}</td>
+        </tr>`).join("")}
+      </table>
+      <p style="margin-top:10px"><b>GitHub:</b> closed ${teamIssuesClosed.length} | merged ${teamMergedPrs.length} | commits ${teamCommits.length} | WIP ${inProgressGh.length} | blockers ${m.blocked.length}</p>
+      <hr><p style="color:#888;font-size:12px">Auto-generated · <a href="https://workflowview.vercel.app">Dashboard</a></p>
       </body></html>`;
     await sendEmail({ subject: `Morning Briefing — ${projectName} — ${todayStr}`, html });
 
@@ -228,12 +203,11 @@ IMPORTANT RULES:
       ok: true,
       today: todayStr,
       yesterday_workday: yesterdayStr,
-      members_logged: allMembers.length,
-      yesterday_done_count: memberRows.filter((l) => l.yesterdayDone && l.yesterdayDone !== "—").length,
-      today_plan_count: memberRows.filter((l) => l.todayPlan && l.todayPlan !== "—").length,
-      carryover_count: memberRows.filter((l) => l.yesterdayWip && l.yesterdayWip !== "—").length,
-      sheet_error: sheetError || null,
-      github: { closed: m.issues_closed.length, merged: m.prs_merged.length, commits: m.commits.length, in_progress: inProgressGh.length, blockers: m.blocked.length },
+      members: memberRows.length,
+      yesterday_done: memberRows.filter((l) => l.yesterdayDone && l.yesterdayDone !== "—").length,
+      today_plan: memberRows.filter((l) => l.todayPlan && l.todayPlan !== "—").length,
+      carryover: memberRows.filter((l) => l.yesterdayWip && l.yesterdayWip !== "—").length,
+      team_github: { closed: teamIssuesClosed.length, merged: teamMergedPrs.length, commits: teamCommits.length },
       summary_excerpt: aiSummary.slice(0, 200),
     });
   } catch (e) {
