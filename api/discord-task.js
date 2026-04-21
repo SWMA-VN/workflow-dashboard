@@ -1,14 +1,10 @@
 // POST /api/discord-task
-// Discord slash commands: /task and /projects
+// Discord /task command with:
+//   - description (required)
+//   - project (optional autocomplete dropdown — shows all org repos)
+//   - priority (optional)
 //
-// /task <description> [project:<repo>] [priority:P0/P1/P2]
-//   → AI detects correct repo from description (or user specifies)
-//   → Creates issue in that repo
-//   → Auto-assign fires
-//   → Discord responds with repo + branch name
-//
-// /projects
-//   → Lists all repos in the org
+// If project not picked → AI auto-detects from description.
 
 import nacl from "tweetnacl";
 import { aiSummarize } from "../lib/ai.js";
@@ -43,18 +39,23 @@ function verifyDiscord(body, signature, timestamp, publicKey) {
   }
 }
 
-// Fetch org repos for routing
-async function fetchOrgRepos() {
+// Cache org repos (5 min)
+let _repoCache = null;
+let _repoCacheTime = 0;
+
+async function getOrgRepos() {
+  if (_repoCache && Date.now() - _repoCacheTime < 300000) return _repoCache;
   const org = process.env.GITHUB_ORG || "SWMA-VN";
   try {
     const r = await fetch(`${GH_API}/orgs/${org}/repos?per_page=100&sort=updated&type=all`, { headers: ghHeaders() });
-    if (!r.ok) return [];
-    const repos = await r.json();
-    return repos.map((r) => ({ full_name: r.full_name, name: r.name, description: r.description || "", language: r.language || "" }));
-  } catch (e) { return []; }
+    if (!r.ok) return _repoCache || [];
+    _repoCache = (await r.json()).map((r) => ({ full_name: r.full_name, name: r.name, description: r.description || "", language: r.language || "" }));
+    _repoCacheTime = Date.now();
+    return _repoCache;
+  } catch (e) { return _repoCache || []; }
 }
 
-// Keyword-based repo detection (fast fallback when AI unavailable)
+// Keyword repo detection
 const REPO_KEYWORDS = {
   "ai-success-2.0": ["ai success", "hot lead", "crm", "chatbot", "gamification", "partner crm", "ai solomon", "goal", "leaderboard"],
   "swma-enrollment": ["enrollment", "enroll", "hitpay", "bydesign", "signup", "partner registration"],
@@ -65,7 +66,6 @@ const REPO_KEYWORDS = {
   "swma-sw": ["shopware", "shopware6"],
   "psaim": ["psaim", "health dashboard", "vitals", "wellness"],
   "recommendations": ["recommendation", "health product"],
-  "swma-laravel": ["laravel"],
 };
 
 function detectRepoByKeywords(text) {
@@ -76,81 +76,54 @@ function detectRepoByKeywords(text) {
   return null;
 }
 
-// AI-based repo detection
 async function detectRepoByAI(description, repos) {
   const repoList = repos.map((r) => `${r.name} — ${r.description} (${r.language})`).join("\n");
   const prompt = `Pick the ONE most relevant GitHub repository for this task.
-
 Task: "${description}"
-
-Available repos:
-${repoList}
-
-Reply with ONLY the repo name (e.g., "ai-success-2.0"), nothing else. If unclear, reply "workflow-dashboard".`;
-
+Repos:\n${repoList}
+Reply with ONLY the repo name. If unclear, reply "workflow-dashboard".`;
   const result = await aiSummarize(prompt, { maxTokens: 50 });
   const cleaned = result.trim().replace(/["`']/g, "").split("\n")[0].trim();
-  // Validate against actual repos
   const match = repos.find((r) => r.name === cleaned || r.full_name === cleaned);
   return match ? match.name : null;
-}
-
-// Parse "project:RepoName" from description
-function parseProjectTag(description) {
-  // Match patterns: "project:ai-success" or ":AI Success" at end
-  const match = description.match(/(?:project:|:)([a-zA-Z0-9\-_ ]+)\s*$/i);
-  if (!match) return { cleanDesc: description, projectHint: null };
-  const hint = match[1].trim();
-  const cleanDesc = description.replace(match[0], "").trim();
-  return { cleanDesc, projectHint: hint };
-}
-
-// Match project hint to actual repo
-function matchHintToRepo(hint, repos) {
-  const h = hint.toLowerCase().replace(/[^a-z0-9]/g, "");
-  // Try direct name match
-  const direct = repos.find((r) => r.name.toLowerCase().replace(/[^a-z0-9]/g, "") === h);
-  if (direct) return direct.name;
-  // Try partial match
-  const partial = repos.find((r) => r.name.toLowerCase().includes(h) || h.includes(r.name.toLowerCase().replace(/[^a-z0-9]/g, "")));
-  if (partial) return partial.name;
-  // Try description match
-  const descMatch = repos.find((r) => r.description.toLowerCase().includes(hint.toLowerCase()));
-  if (descMatch) return descMatch.name;
-  return null;
 }
 
 async function registerCommands() {
   const appId = process.env.DISCORD_APP_ID;
   const botToken = process.env.DISCORD_BOT_TOKEN;
-  if (!appId || !botToken) return { error: "Missing DISCORD_APP_ID or DISCORD_BOT_TOKEN" };
+  if (!appId || !botToken) return { error: "Missing env vars" };
 
-  const commands = [
-    {
+  // Delete old /projects command if exists
+  try {
+    const existing = await fetch(`https://discord.com/api/v10/applications/${appId}/commands`, {
+      headers: { Authorization: `Bot ${botToken}` },
+    });
+    const cmds = await existing.json();
+    for (const cmd of cmds) {
+      if (cmd.name === "projects") {
+        await fetch(`https://discord.com/api/v10/applications/${appId}/commands/${cmd.id}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bot ${botToken}` },
+        });
+      }
+    }
+  } catch (e) {}
+
+  const r = await fetch(`https://discord.com/api/v10/applications/${appId}/commands`, {
+    method: "POST",
+    headers: { Authorization: `Bot ${botToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
       name: "task",
       description: "Create a GitHub task (auto-detects repo + auto-assigns)",
       options: [
-        { name: "description", description: "What needs to be done (add ':ProjectName' at end to specify repo)", type: 3, required: true },
+        { name: "description", description: "What needs to be done", type: 3, required: true },
+        { name: "project", description: "Pick a repo (or leave blank for auto-detect)", type: 3, required: false, autocomplete: true },
         { name: "priority", description: "Priority level", type: 3, required: false,
-          choices: [{ name: "P0", value: "p0" }, { name: "P1", value: "p1" }, { name: "P2", value: "p2" }] },
+          choices: [{ name: "P0 — Critical", value: "p0" }, { name: "P1 — High", value: "p1" }, { name: "P2 — Normal", value: "p2" }] },
       ],
-    },
-    {
-      name: "projects",
-      description: "List all repos in the organization",
-    },
-  ];
-
-  const results = [];
-  for (const cmd of commands) {
-    const r = await fetch(`https://discord.com/api/v10/applications/${appId}/commands`, {
-      method: "POST",
-      headers: { Authorization: `Bot ${botToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify(cmd),
-    });
-    results.push({ name: cmd.name, status: r.status });
-  }
-  return results;
+    }),
+  });
+  return { status: r.status, body: await r.text() };
 }
 
 export default async function handler(req, res) {
@@ -171,88 +144,92 @@ export default async function handler(req, res) {
 
   const org = process.env.GITHUB_ORG || "SWMA-VN";
 
-  // ===== /projects command =====
-  if (body.type === 2 && body.data?.name === "projects") {
-    const repos = await fetchOrgRepos();
-    const list = repos.slice(0, 25).map((r) =>
-      `**${r.name}** — ${r.description || r.language || "no description"}`
-    ).join("\n");
-    return res.json({
-      type: 4,
-      data: { content: `**Repos in ${org}** (${repos.length} total):\n\n${list}` },
-    });
+  // ===== AUTOCOMPLETE: return repo list as user types =====
+  if (body.type === 4) {
+    const focused = (body.data.options || []).find((o) => o.focused);
+    if (focused && focused.name === "project") {
+      const query = (focused.value || "").toLowerCase();
+      const repos = await getOrgRepos();
+      const filtered = repos
+        .filter((r) => {
+          if (!query) return true;
+          return r.name.toLowerCase().includes(query) ||
+                 (r.description || "").toLowerCase().includes(query);
+        })
+        .slice(0, 25)
+        .map((r) => ({
+          name: `${r.name}${r.description ? ` — ${r.description.slice(0, 60)}` : ""}`,
+          value: r.name,
+        }));
+      return res.json({ type: 8, data: { choices: filtered } });
+    }
+    return res.json({ type: 8, data: { choices: [] } });
   }
 
   // ===== /task command =====
   if (body.type === 2 && body.data?.name === "task") {
-    const rawDesc = (body.data.options || []).find((o) => o.name === "description")?.value || "";
+    const description = (body.data.options || []).find((o) => o.name === "description")?.value || "";
+    const projectPick = (body.data.options || []).find((o) => o.name === "project")?.value || "";
     const priority = (body.data.options || []).find((o) => o.name === "priority")?.value || "p1";
     const author = body.member?.user?.username || body.user?.username || "unknown";
-    const channelName = body.channel?.name || "";
 
-    if (!rawDesc) {
+    if (!description) {
       return res.json({ type: 4, data: { content: "Provide a task description.", flags: 64 } });
     }
 
-    // Parse optional project tag from description
-    const { cleanDesc, projectHint } = parseProjectTag(rawDesc);
-    const title = cleanDesc.length > 80 ? cleanDesc.slice(0, 77) + "..." : cleanDesc;
-
-    // Detect correct repo
-    const repos = await fetchOrgRepos();
+    const title = description.length > 80 ? description.slice(0, 77) + "..." : description;
+    const repos = await getOrgRepos();
     let repoName = null;
     let routeMethod = "default";
 
-    // Priority 1: user-specified project tag
-    if (projectHint) {
-      repoName = matchHintToRepo(projectHint, repos);
-      if (repoName) routeMethod = "user-specified";
+    // Priority 1: user picked from dropdown
+    if (projectPick) {
+      const match = repos.find((r) => r.name === projectPick);
+      if (match) { repoName = match.name; routeMethod = "user-selected"; }
     }
 
-    // Priority 2: keyword detection from description + channel name
+    // Priority 2: keyword detection
     if (!repoName) {
-      repoName = detectRepoByKeywords(`${cleanDesc} ${channelName}`);
+      repoName = detectRepoByKeywords(description);
       if (repoName) routeMethod = "keyword-match";
     }
 
     // Priority 3: AI detection
     if (!repoName && repos.length) {
-      repoName = await detectRepoByAI(cleanDesc, repos);
+      repoName = await detectRepoByAI(description, repos);
       if (repoName) routeMethod = "ai-detected";
     }
 
-    // Fallback
     if (!repoName) repoName = "workflow-dashboard";
     const fullRepo = `${org}/${repoName}`;
 
     try {
-      const issueBody = `${cleanDesc}\n\n---\n**Created from Discord** by @${author} via \`/task\`\n**Repo:** ${fullRepo} (${routeMethod})\n**Priority:** ${priority}`;
+      const issueBody = `${description}\n\n---\n**Created from Discord** by @${author} via \`/task\`\n**Repo:** ${fullRepo} (${routeMethod})\n**Priority:** ${priority}`;
 
       const ghRes = await fetch(`${GH_API}/repos/${fullRepo}/issues`, {
         method: "POST",
         headers: ghHeaders(),
         body: JSON.stringify({
-          title: cleanDesc,
+          title: description,
           body: issueBody,
           labels: ["discord", priority],
         }),
       });
-      if (!ghRes.ok) throw new Error(`GitHub ${ghRes.status}: ${await ghRes.text()}`);
+      if (!ghRes.ok) throw new Error(`GitHub ${ghRes.status}: ${(await ghRes.text()).slice(0, 200)}`);
       const issue = await ghRes.json();
 
-      const branchName = `${issue.number}-${cleanDesc.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}`;
+      const branchName = `${issue.number}-${description.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40)}`;
 
       return res.json({
         type: 4,
         data: {
           content: [
             `**Task created:** [${repoName}#${issue.number}](${issue.html_url})`,
-            `**${cleanDesc}**`,
+            `**${description}**`,
             ``,
             `Repo: \`${repoName}\` (${routeMethod})`,
             `Branch: \`${branchName}\``,
             `Priority: ${priority.toUpperCase()}`,
-            ``,
             `Auto-assign picking the right dev now.`,
           ].join("\n"),
         },
