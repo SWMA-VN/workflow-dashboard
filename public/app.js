@@ -72,79 +72,204 @@ function priorityFromLabels(labels) {
 // Store last kanban data for filtering
 let _kanbanData = null;
 
+// Build a single card element
+function buildCard(issue, col) {
+  const repo = repoFromUrl(issue.url);
+  const prio = priorityFromLabels(issue.labels);
+  const isBlocker = issue.labels.some((l) => l.toLowerCase().includes("block"));
+  const isMerged = issue.labels.includes("merged");
+
+  const card = document.createElement("div");
+  card.className = "card" + (isBlocker ? " blocker" : "") + (isMerged ? " merged" : "");
+  card.draggable = true;
+  card.dataset.issue = issue.number;
+  card.dataset.repo = repo;
+  card.dataset.col = col;
+  card.dataset.url = issue.url;
+  card.dataset.title = issue.title;
+  card.dataset.assignees = issue.assignees.join(",");
+  card.dataset.labels = issue.labels.join(",");
+  card.dataset.updated = issue.updated_at;
+
+  const systemLabels = ["pull-request", "merged", "inbox", "inbox-history", "discord", "customer-feedback", "p0", "p1", "p2", "status:in-progress", "status:in-review", "status:testing", "block", "blocked"];
+  const displayLabels = issue.labels
+    .filter((l) => !systemLabels.includes(l.toLowerCase()))
+    .slice(0, 2)
+    .map((l) => `<span class="label-tag">${escapeHtml(l)}</span>`)
+    .join("");
+
+  const assigneeHtml = issue.assignees
+    .map((a) => `<span class="assignee" title="${escapeHtml(a)}">${avatar(a)}</span>`)
+    .join("");
+
+  const prioDot = prio ? `<span class="card-priority prio-${prio}" title="${prio.toUpperCase()}"></span>` : "";
+  const repoBadge = repo && repo !== "workflow-dashboard" ? `<span class="card-repo">${escapeHtml(repo)}</span>` : "";
+
+  card.innerHTML = `
+    <div class="card-num">${prioDot}#${issue.number}${repoBadge}</div>
+    <div class="card-title">${escapeHtml(issue.title)}</div>
+    <div class="card-meta">${assigneeHtml}${displayLabels}<span class="card-age">${ago(issue.updated_at)}</span></div>`;
+
+  // Click → open side panel (not GitHub link)
+  card.addEventListener("click", (e) => {
+    e.preventDefault();
+    openSidePanel(issue, col, repo);
+  });
+
+  // Drag start
+  card.addEventListener("dragstart", (e) => {
+    card.classList.add("dragging");
+    e.dataTransfer.setData("text/plain", JSON.stringify({ issue: issue.number, repo, col }));
+    e.dataTransfer.effectAllowed = "move";
+  });
+  card.addEventListener("dragend", () => card.classList.remove("dragging"));
+
+  return card;
+}
+
+// Build a single column with cards
+function buildColumn(col, items, fAssignee, fRepo, fSearch) {
+  const colEl = document.createElement("div");
+  colEl.className = "column";
+  colEl.dataset.col = col;
+
+  let visibleCount = 0;
+  const cardEls = [];
+
+  for (const issue of items) {
+    const repo = repoFromUrl(issue.url);
+    const matchA = !fAssignee || issue.assignees.includes(fAssignee);
+    const matchR = !fRepo || repo === fRepo;
+    const matchS = !fSearch || issue.title.toLowerCase().includes(fSearch) || `#${issue.number}`.includes(fSearch);
+    const visible = matchA && matchR && matchS;
+
+    const card = buildCard(issue, col);
+    if (!visible) card.classList.add("filtered-out");
+    else visibleCount++;
+    cardEls.push(card);
+  }
+
+  colEl.innerHTML = `<div class="column-header"><span>${col}</span><span class="col-count">${visibleCount}</span></div>`;
+  if (visibleCount === 0) {
+    const empty = document.createElement("div");
+    empty.style.cssText = "color:var(--text-faint);font-size:11px;text-align:center;padding:20px 0;font-style:italic";
+    empty.textContent = "—";
+    colEl.appendChild(empty);
+  }
+  for (const c of cardEls) colEl.appendChild(c);
+
+  // Drop zone
+  colEl.addEventListener("dragover", (e) => { e.preventDefault(); colEl.classList.add("drag-over"); });
+  colEl.addEventListener("dragleave", () => colEl.classList.remove("drag-over"));
+  colEl.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    colEl.classList.remove("drag-over");
+    try {
+      const d = JSON.parse(e.dataTransfer.getData("text/plain"));
+      if (d.col === col) return; // same column, no move
+      const fullRepo = `${process.env?.GITHUB_ORG || "SWMA-VN"}/${d.repo}`;
+      await moveCard(d.repo, d.issue, col);
+    } catch (err) { console.error(err); }
+  });
+
+  return colEl;
+}
+
 function renderKanban(data) {
   _kanbanData = data;
   const root = document.getElementById("kanban");
   root.innerHTML = "";
-
-  // Populate filter dropdowns (once)
   populateKanbanFilters(data);
 
-  // Get active filters
   const fAssignee = document.getElementById("filter-assignee")?.value || "";
   const fRepo = document.getElementById("filter-repo")?.value || "";
   const fSearch = (document.getElementById("filter-search")?.value || "").toLowerCase();
+  const groupBy = document.getElementById("filter-group")?.value || "";
 
-  for (const col of COLUMNS) {
-    const items = data.columns[col] || [];
-    const colEl = document.createElement("div");
-    colEl.className = "column";
-    colEl.dataset.col = col;
-
-    let visibleCount = 0;
-
-    const cardEls = [];
-    for (const issue of items) {
-      const repo = repoFromUrl(issue.url);
-      const prio = priorityFromLabels(issue.labels);
-      const isBlocker = issue.labels.some((l) => l.toLowerCase().includes("block"));
-      const isMerged = issue.labels.includes("merged");
-
-      // Apply filters
-      const matchAssignee = !fAssignee || issue.assignees.includes(fAssignee);
-      const matchRepo = !fRepo || repo === fRepo;
-      const matchSearch = !fSearch || issue.title.toLowerCase().includes(fSearch) || `#${issue.number}`.includes(fSearch);
-      const visible = matchAssignee && matchRepo && matchSearch;
-      if (visible) visibleCount++;
-
-      const card = document.createElement("a");
-      card.className = "card" + (isBlocker ? " blocker" : "") + (isMerged ? " merged" : "") + (!visible ? " filtered-out" : "");
-      card.href = issue.url;
-      card.target = "_blank";
-      card.rel = "noopener";
-
-      // Labels: filter out system labels for display
-      const systemLabels = ["pull-request", "merged", "inbox", "inbox-history", "discord", "customer-feedback", "p0", "p1", "p2", "status:in-progress", "status:in-review", "status:testing", "block", "blocked"];
-      const displayLabels = issue.labels
-        .filter((l) => !systemLabels.includes(l.toLowerCase()))
-        .slice(0, 2)
-        .map((l) => `<span class="label-tag">${escapeHtml(l)}</span>`)
-        .join("");
-
-      const assigneeHtml = issue.assignees
-        .map((a) => `<span class="assignee" title="${escapeHtml(a)}">${avatar(a)}</span>`)
-        .join("");
-
-      const prioDot = prio ? `<span class="card-priority prio-${prio}" title="${prio.toUpperCase()}"></span>` : "";
-      const repoBadge = repo && repo !== "workflow-dashboard" ? `<span class="card-repo">${escapeHtml(repo)}</span>` : "";
-
-      card.innerHTML = `
-        <div class="card-num">${prioDot}#${issue.number}${repoBadge}</div>
-        <div class="card-title">${escapeHtml(issue.title)}</div>
-        <div class="card-meta">${assigneeHtml}${displayLabels}<span class="card-age">${ago(issue.updated_at)}</span></div>`;
-      cardEls.push(card);
+  if (!groupBy) {
+    // Default: flat 6-column kanban
+    for (const col of COLUMNS) {
+      root.appendChild(buildColumn(col, data.columns[col] || [], fAssignee, fRepo, fSearch));
+    }
+  } else {
+    // Swimlanes: group by repo or assignee
+    const groups = {};
+    for (const col of COLUMNS) {
+      for (const issue of (data.columns[col] || [])) {
+        let key;
+        if (groupBy === "repo") key = repoFromUrl(issue.url) || "unknown";
+        else if (groupBy === "assignee") key = issue.assignees[0] || "unassigned";
+        else key = "all";
+        if (!groups[key]) groups[key] = {};
+        if (!groups[key][col]) groups[key][col] = [];
+        groups[key][col].push(issue);
+      }
     }
 
-    colEl.innerHTML = `<div class="column-header"><span>${col}</span><span class="col-count">${visibleCount}</span></div>`;
-
-    if (!cardEls.length || visibleCount === 0) {
-      const empty = document.createElement("div");
-      empty.style.cssText = "color:var(--text-faint);font-size:11px;text-align:center;padding:20px 0;font-style:italic";
-      empty.textContent = "—";
-      colEl.appendChild(empty);
+    const sortedKeys = Object.keys(groups).sort();
+    for (const key of sortedKeys) {
+      const totalCards = COLUMNS.reduce((s, c) => s + (groups[key][c] || []).length, 0);
+      const groupEl = document.createElement("div");
+      groupEl.className = "swimlane-group";
+      groupEl.innerHTML = `<div class="swimlane-header">${escapeHtml(key)}<span class="swimlane-count">${totalCards} cards</span></div>`;
+      const kanbanEl = document.createElement("div");
+      kanbanEl.className = "kanban";
+      for (const col of COLUMNS) {
+        kanbanEl.appendChild(buildColumn(col, groups[key][col] || [], fAssignee, fRepo, fSearch));
+      }
+      groupEl.appendChild(kanbanEl);
+      root.appendChild(groupEl);
     }
-    for (const card of cardEls) colEl.appendChild(card);
-    root.appendChild(colEl);
+  }
+}
+
+// ===== SIDE PANEL =====
+function openSidePanel(issue, col, repo) {
+  const panel = document.getElementById("side-panel");
+  panel.classList.remove("hidden");
+  document.getElementById("sp-num").textContent = `#${issue.number}`;
+  document.getElementById("sp-github-link").href = issue.url;
+  document.getElementById("sp-title").textContent = issue.title;
+  document.getElementById("sp-status").textContent = col;
+  document.getElementById("sp-repo").textContent = repo;
+  document.getElementById("sp-assignees").textContent = issue.assignees.join(", ") || "unassigned";
+  document.getElementById("sp-priority").textContent = priorityFromLabels(issue.labels).toUpperCase() || "—";
+  document.getElementById("sp-labels").textContent = issue.labels.filter((l) => !["pull-request","merged"].includes(l)).join(", ") || "—";
+  document.getElementById("sp-updated").textContent = new Date(issue.updated_at).toLocaleString();
+
+  // Highlight current column in move buttons
+  document.querySelectorAll(".sp-move-btn").forEach((btn) => {
+    btn.style.background = btn.dataset.col === col ? "var(--accent)" : "";
+    btn.style.color = btn.dataset.col === col ? "#fff" : "";
+    btn.onclick = async () => {
+      if (btn.dataset.col === col) return;
+      btn.textContent = "...";
+      await moveCard(repo, issue.number, btn.dataset.col);
+      panel.classList.add("hidden");
+    };
+  });
+}
+
+document.getElementById("sp-close")?.addEventListener("click", () => document.getElementById("side-panel").classList.add("hidden"));
+document.getElementById("side-panel-overlay")?.addEventListener("click", () => document.getElementById("side-panel").classList.add("hidden"));
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") document.getElementById("side-panel")?.classList.add("hidden"); });
+
+// ===== MOVE CARD (drag-drop + side panel) =====
+async function moveCard(repo, issueNumber, targetColumn) {
+  try {
+    const fullRepo = repo.includes("/") ? repo : `SWMA-VN/${repo}`;
+    const r = await fetch("/api/github", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repo: fullRepo, issue: issueNumber, column: targetColumn }),
+    });
+    const d = await r.json();
+    if (d.ok) {
+      // Refresh kanban data
+      loadGithub();
+    }
+  } catch (e) {
+    console.error("Move failed:", e);
   }
 }
 
@@ -825,7 +950,7 @@ function initFromHash() { switchTab(window.location.hash.replace("#", "") || "ov
 
 // Refresh button: reset all filters + reload
 // Kanban filter events — re-render from cached data (no API call)
-["filter-assignee", "filter-repo"].forEach((id) => {
+["filter-assignee", "filter-repo", "filter-group"].forEach((id) => {
   document.getElementById(id)?.addEventListener("change", () => {
     if (_kanbanData) renderKanban(_kanbanData);
   });

@@ -135,6 +135,7 @@
       <select id="filter-assignee" class="filter-select"><option value="">All members</option></select>
       <select id="filter-repo" class="filter-select"><option value="">All repos</option></select>
       <input type="text" id="filter-search" class="filter-search" placeholder="Search cards...">
+      <select id="filter-group" class="filter-select"><option value="">No grouping</option><option value="repo">Group by Repo</option><option value="assignee">Group by Assignee</option></select>
       <button class="filter-btn" id="kanban-compact-toggle" title="Toggle compact view">Compact</button>
     </div>
     <div class="filter-info" id="filter-info"></div>
@@ -266,6 +267,36 @@
     <pre id="team-config" class="result-pane">Loading...</pre>
   </div>
 </section>
+
+<!-- Side panel for card detail -->
+<div id="side-panel" class="side-panel hidden">
+  <div class="side-panel-overlay" id="side-panel-overlay"></div>
+  <div class="side-panel-content">
+    <div class="side-panel-header">
+      <span id="sp-num" class="sp-num"></span>
+      <a id="sp-github-link" href="#" target="_blank" class="sp-github-link">Open in GitHub</a>
+      <button id="sp-close" class="sp-close">X</button>
+    </div>
+    <h2 id="sp-title" class="sp-title"></h2>
+    <div class="sp-meta-grid">
+      <div class="sp-field"><span class="sp-label">Status</span><span id="sp-status"></span></div>
+      <div class="sp-field"><span class="sp-label">Repo</span><span id="sp-repo"></span></div>
+      <div class="sp-field"><span class="sp-label">Assignees</span><span id="sp-assignees"></span></div>
+      <div class="sp-field"><span class="sp-label">Priority</span><span id="sp-priority"></span></div>
+      <div class="sp-field"><span class="sp-label">Labels</span><span id="sp-labels"></span></div>
+      <div class="sp-field"><span class="sp-label">Updated</span><span id="sp-updated"></span></div>
+    </div>
+    <div class="sp-actions">
+      <span class="sp-label">Move to:</span>
+      <button class="sp-move-btn" data-col="Todo">Todo</button>
+      <button class="sp-move-btn" data-col="In Progress">Progress</button>
+      <button class="sp-move-btn" data-col="In Review">Review</button>
+      <button class="sp-move-btn" data-col="Testing">Testing</button>
+      <button class="sp-move-btn" data-col="Blocked">Blocked</button>
+      <button class="sp-move-btn" data-col="Done">Done</button>
+    </div>
+  </div>
+</div>
 
 <footer>
   <span>PM Command Center · click Refresh to sync · <a id="repo-link" href="#" target="_blank">GitHub</a></span>

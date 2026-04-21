@@ -5,7 +5,17 @@ import { listIssues, listPulls, getMetrics, listMilestones } from "../lib/github
 
 const COLUMNS = ["Todo", "In Progress", "In Review", "Testing", "Blocked", "Done"];
 
+const GH_API = "https://api.github.com";
+function ghHeaders() {
+  return { Authorization: `Bearer ${process.env.GITHUB_TOKEN}`, Accept: "application/vnd.github+json", "Content-Type": "application/json" };
+}
+
+const STATUS_LABELS = ["status:in-progress", "status:in-review", "status:testing"];
+
 export default async function handler(req, res) {
+  // POST = move card between columns
+  if (req.method === "POST") return handleMove(req, res);
+
   // No auto-poll. Data fetched only on user action (Refresh, filter, tab switch).
   // No cache-busting from client. Vercel CDN caches 10 min for fast repeat loads.
   res.setHeader("Cache-Control", "s-maxage=600, stale-while-revalidate=1200");
@@ -177,6 +187,56 @@ export default async function handler(req, res) {
         retry_after_seconds: 120,
       });
     }
+    res.status(500).json({ error: e.message });
+  }
+}
+
+// POST handler: move issue between Kanban columns
+async function handleMove(req, res) {
+  try {
+    const { repo, issue, column } = req.body || {};
+    if (!repo || !issue || !column) return res.status(400).json({ error: "need repo, issue, column" });
+
+    const labelMap = {
+      "Todo": null, // remove all status labels
+      "In Progress": "status:in-progress",
+      "In Review": "status:in-review",
+      "Testing": "status:testing",
+      "Blocked": "Block",
+      "Done": null, // close issue
+    };
+    const targetLabel = labelMap[column];
+
+    // Remove all existing status labels + Block
+    for (const label of [...STATUS_LABELS, "Block"]) {
+      await fetch(`${GH_API}/repos/${repo}/issues/${issue}/labels/${encodeURIComponent(label)}`, {
+        method: "DELETE", headers: ghHeaders(),
+      }).catch(() => {});
+    }
+
+    // Add new label (if not Todo/Done)
+    if (targetLabel) {
+      await fetch(`${GH_API}/repos/${repo}/issues/${issue}/labels`, {
+        method: "POST", headers: ghHeaders(),
+        body: JSON.stringify({ labels: [targetLabel] }),
+      });
+    }
+
+    // Close if Done, reopen if moving out of Done
+    if (column === "Done") {
+      await fetch(`${GH_API}/repos/${repo}/issues/${issue}`, {
+        method: "PATCH", headers: ghHeaders(),
+        body: JSON.stringify({ state: "closed" }),
+      });
+    } else {
+      await fetch(`${GH_API}/repos/${repo}/issues/${issue}`, {
+        method: "PATCH", headers: ghHeaders(),
+        body: JSON.stringify({ state: "open" }),
+      });
+    }
+
+    res.json({ ok: true, issue, column });
+  } catch (e) {
     res.status(500).json({ error: e.message });
   }
 }
