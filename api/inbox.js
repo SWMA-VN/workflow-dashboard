@@ -351,11 +351,23 @@ export default async function handler(req, res) {
       if (item.priority) labels.push(item.priority.toLowerCase());
       labels.push(isFeedback ? "customer-feedback" : "inbox");
 
+      // Detect milestone for this repo
+      let milestoneNumber = null;
+      try {
+        const mlRes = await fetch(`${GH_API}/repos/${targetRepo}/milestones?state=open&per_page=5`, { headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}`, Accept: "application/vnd.github+json" } });
+        if (mlRes.ok) {
+          const mls = await mlRes.json();
+          if (mls.length === 1) milestoneNumber = mls[0].number; // single milestone → auto-assign
+          else if (mls.length > 1) milestoneNumber = mls[0].number; // multiple → use first (most recent)
+        }
+      } catch (e) { /* skip milestone */ }
+
       try {
         const issue = await ghPost(`/repos/${targetRepo}/issues`, {
           title: `[INBOX] ${item.title}`,
           body: issueBody,
           labels: labels.filter(Boolean),
+          ...(milestoneNumber ? { milestone: milestoneNumber } : {}),
         });
         created.push({
           number: issue.number,

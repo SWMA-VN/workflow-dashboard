@@ -3,7 +3,7 @@
 
 import { listIssues, listPulls, getMetrics, listMilestones } from "../lib/github.js";
 
-const COLUMNS = ["Todo", "In Progress", "In Review", "Testing", "Blocked", "Done"];
+const COLUMNS = ["Todo", "In Progress", "In Review", "Blocked", "Done"];
 
 const GH_API = "https://api.github.com";
 function ghHeaders() {
@@ -72,9 +72,7 @@ export default async function handler(req, res) {
       // Priority: blocked > status labels > assignee fallback
       if (labels.includes("block") || labels.includes("blocked") || labels.includes("blocker")) {
         col = "Blocked";
-      } else if (labels.includes("status:testing")) {
-        col = "Testing";
-      } else if (labels.includes("status:in-review")) {
+      } else if (labels.includes("status:testing") || labels.includes("status:in-review")) {
         col = "In Review";
       } else if (labels.includes("status:in-progress")) {
         col = "In Progress";
@@ -124,7 +122,9 @@ export default async function handler(req, res) {
 
       // Forecast: weeks_to_ship = remaining / velocity_per_week
       let forecast = null, status = "on-track", daysOffset = 0;
-      if (remaining === 0) {
+      if (total === 0) {
+        status = "empty";
+      } else if (remaining === 0) {
         status = "done";
       } else if (weeklyVelocity >= 0.1) {
         const weeksToShip = remaining / weeklyVelocity;

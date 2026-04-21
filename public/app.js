@@ -52,7 +52,7 @@ function avatar(login) {
   return escapeHtml(login.slice(0, 2).toUpperCase());
 }
 
-const COLUMNS = ["Todo", "In Progress", "In Review", "Testing", "Blocked", "Done"];
+const COLUMNS = ["Todo", "In Progress", "In Review", "Blocked", "Done"];
 
 // Extract repo name from issue URL
 function repoFromUrl(url) {
@@ -794,6 +794,9 @@ async function loadPerformance() {
       }).join("");
     }
 
+    // Monthly trend
+    renderTrend(data.monthly_trend || []);
+
     // Burnout detector
     renderBurnout(data.burnout_alerts || []);
 
@@ -805,6 +808,32 @@ async function loadPerformance() {
   } catch (e) {
     document.getElementById("cycle-stats").innerHTML = `<div class="loading">⚠️ ${escapeHtml(e.message)}</div>`;
   }
+}
+
+function renderTrend(weeks) {
+  const wrap = document.getElementById("trend-chart");
+  if (!wrap || !weeks.length) return;
+  const max = Math.max(1, ...weeks.map((w) => w.merged));
+  wrap.innerHTML = `
+    <div style="display:flex;gap:4px;align-items:end;height:120px">
+      ${weeks.map((w) => {
+        const h = (w.merged / max) * 100;
+        const cycleLabel = w.cycle_p50 != null ? `${w.cycle_p50}d` : "-";
+        return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
+          <span style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace">${w.merged}</span>
+          <div style="width:100%;max-width:40px;background:var(--bg-elevated);border-radius:4px 4px 0 0;height:90px;display:flex;align-items:end">
+            <div style="width:100%;background:var(--accent);border-radius:4px 4px 0 0;height:${h}%;min-height:2px;transition:height 0.4s"></div>
+          </div>
+          <span style="font-size:9px;color:var(--text-faint)">${w.label}</span>
+          <span style="font-size:9px;color:var(--text-muted)">${cycleLabel}</span>
+        </div>`;
+      }).join("")}
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:10px;color:var(--text-faint)">
+      <span>12 weeks ago</span>
+      <span>Bar = PRs merged / Bottom = cycle time P50</span>
+      <span>This week</span>
+    </div>`;
 }
 
 function renderBurnout(alerts) {
@@ -1059,6 +1088,15 @@ document.addEventListener("keydown", (e) => {
     loadGithub();
   }
 });
+
+// Client view: hide internal tabs
+if (new URLSearchParams(window.location.search).get("view") === "client") {
+  document.querySelectorAll('.tab[data-tab="performance"], .tab[data-tab="people"], .tab[data-tab="sheets"], .tab[data-tab="inbox"], .tab[data-tab="assign"]').forEach((t) => t.style.display = "none");
+  document.querySelector(".metrics")?.remove(); // hide raw metrics
+  document.querySelector("header .badge.live")?.remove();
+  const h1 = document.querySelector("header h1");
+  if (h1) h1.textContent = "Project Dashboard";
+}
 
 // Init — load once on page open, no auto-polling
 loadGithub();

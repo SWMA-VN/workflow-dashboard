@@ -63,7 +63,6 @@
   <a href="#performance" class="tab" data-tab="performance">Performance</a>
   <a href="#people" class="tab" data-tab="people">People</a>
   <a href="#sheets" class="tab" data-tab="sheets">Sheets</a>
-  <a href="#discord" class="tab" data-tab="discord">Discord</a>
   <a href="#inbox" class="tab" data-tab="inbox">Inbox</a>
   <a href="#assign" class="tab" data-tab="assign">Assign</a>
 </nav>
@@ -160,6 +159,11 @@
       <div class="card-header"><h3>Throughput</h3><span class="card-badge">PRs merged per dev, 30d</span></div>
       <div id="throughput-list"><div class="loading">Loading...</div></div>
     </div>
+    <div class="card-block">
+      <div class="card-header"><h3>Trend</h3><span class="card-badge">velocity + cycle time, 12 weeks</span></div>
+      <div id="trend-chart"><div class="loading">Loading...</div></div>
+    </div>
+
     <div class="card-block" id="burnout-block" style="display:none">
       <div class="card-header"><h3>Team Health</h3><span class="card-badge">burnout signals, last 30d</span></div>
       <p class="hint">Weekend and after-hours (10 PM - 6 AM Hanoi) commits. Sustained patterns indicate burnout risk.</p>
@@ -190,15 +194,6 @@
   <div class="card-block">
     <div class="card-header"><h3>Google Sheets</h3><span class="card-badge" id="sheets-source">--</span></div>
     <div id="sheets-table-wrap"><div class="loading">Loading...</div></div>
-  </div>
-</section>
-
-<!-- DISCORD -->
-<section id="tab-discord" class="tab-panel">
-  <div class="card-block">
-    <div class="card-header"><h3>Discord</h3><span class="card-badge">live channel widget</span></div>
-    <p class="hint">Enable: Discord Server Settings → Widget → Enable + paste Server ID in env.</p>
-    <div id="discord-widget-wrap" class="loading">No DISCORD_SERVER_ID configured.</div>
   </div>
 </section>
 
@@ -291,7 +286,6 @@
       <button class="sp-move-btn" data-col="Todo">Todo</button>
       <button class="sp-move-btn" data-col="In Progress">Progress</button>
       <button class="sp-move-btn" data-col="In Review">Review</button>
-      <button class="sp-move-btn" data-col="Testing">Testing</button>
       <button class="sp-move-btn" data-col="Blocked">Blocked</button>
       <button class="sp-move-btn" data-col="Done">Done</button>
     </div>

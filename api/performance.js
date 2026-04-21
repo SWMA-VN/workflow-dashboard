@@ -188,6 +188,24 @@ export default async function handler(req, res) {
       review_backlog: reviewBacklog.slice(0, 20),
       review_backlog_summary: backlogSummary,
       burnout_alerts: burnoutAlerts,
+
+      // Monthly trend: velocity + cycle time per week for last 12 weeks
+      monthly_trend: (() => {
+        const weeks = [];
+        for (let i = 11; i >= 0; i--) {
+          const end = Date.now() - i * 7 * 86400000;
+          const start = end - 7 * 86400000;
+          const weekMerged = mergedPrs.filter((p) => {
+            const t = new Date(p.merged_at).getTime();
+            return t >= start && t < end;
+          });
+          const weekCycles = weekMerged.map((p) => (new Date(p.merged_at) - new Date(p.created_at)) / 86400000).filter((d) => d >= 0);
+          const p50 = weekCycles.length ? weekCycles.sort((a, b) => a - b)[Math.floor(weekCycles.length / 2)] : null;
+          const weekStart = new Date(start).toISOString().slice(5, 10);
+          weeks.push({ label: weekStart, merged: weekMerged.length, cycle_p50: p50 != null ? +p50.toFixed(1) : null });
+        }
+        return weeks;
+      })(),
     });
   } catch (e) {
     console.error(e);
