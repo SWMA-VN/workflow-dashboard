@@ -815,17 +815,16 @@ function renderTrend(weeks) {
   if (!wrap || !weeks.length) return;
   const max = Math.max(1, ...weeks.map((w) => w.merged));
   wrap.innerHTML = `
-    <div style="display:flex;gap:4px;align-items:end;height:120px">
+    <div style="display:flex;gap:3px;align-items:end;height:90px">
       ${weeks.map((w) => {
         const h = (w.merged / max) * 100;
         const cycleLabel = w.cycle_p50 != null ? `${w.cycle_p50}d` : "-";
         return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
-          <span style="font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace">${w.merged}</span>
-          <div style="width:100%;max-width:40px;background:var(--bg-elevated);border-radius:4px 4px 0 0;height:90px;display:flex;align-items:end">
-            <div style="width:100%;background:var(--accent);border-radius:4px 4px 0 0;height:${h}%;min-height:2px;transition:height 0.4s"></div>
+          <span style="font-size:9px;color:var(--text-muted);font-family:'JetBrains Mono',monospace">${w.merged}</span>
+          <div style="width:100%;max-width:30px;background:var(--bg-elevated);border-radius:3px 3px 0 0;height:60px;display:flex;align-items:end">
+            <div style="width:100%;background:var(--accent);border-radius:3px 3px 0 0;height:${h}%;min-height:2px;transition:height 0.3s"></div>
           </div>
-          <span style="font-size:9px;color:var(--text-faint)">${w.label}</span>
-          <span style="font-size:9px;color:var(--text-muted)">${cycleLabel}</span>
+          <span style="font-size:8px;color:var(--text-faint)">${w.label}</span>
         </div>`;
       }).join("")}
     </div>

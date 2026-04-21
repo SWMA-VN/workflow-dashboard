@@ -1051,12 +1051,14 @@ footer {
 /* ============================================================
    OVERVIEW TAB — WIP, velocity, stale
    ============================================================ */
-.overview-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
-.wip-block { grid-column: 1 / -1; }
+/* Overview layout */
+.ov-top { display: grid; grid-template-columns: 1.2fr 1fr; gap: 10px; margin-bottom: 10px; }
+.ov-wip { margin-bottom: 10px; }
+.ov-wip .card-header { display: flex; align-items: center; gap: 16px; }
+.ov-wip .card-header h3 { margin: 0; }
+.ov-wip .wip-summary { margin: 0; }
+.ov-stale { }
+.wip-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
 
 .wip-summary {
   display: flex;
@@ -1091,10 +1093,10 @@ footer {
 .wip-list { display: flex; flex-direction: column; gap: 12px; }
 .wip-dev {
   background: var(--bg-elevated);
-  border-radius: 10px;
-  padding: 14px;
-  border-left: 4px solid var(--accent);
-  transition: all 0.15s ease;
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+  transition: all 0.12s ease;
 }
 .wip-dev:hover { transform: translateX(2px); }
 .wip-dev.wip-overload { border-left-color: var(--danger); background: var(--danger-soft); }
@@ -1105,12 +1107,12 @@ footer {
 .wip-dev-head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-  font-size: 13px;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 12px;
   flex-wrap: wrap;
 }
-.wip-dev-name { font-weight: 600; font-size: 14px; }
+.wip-dev-name { font-weight: 600; font-size: 12px; }
 .wip-skills { display: flex; gap: 4px; }
 .wip-skills code {
   font-size: 10px;
@@ -1135,11 +1137,11 @@ footer {
   font-variant-numeric: tabular-nums;
 }
 .wip-bar {
-  height: 8px;
+  height: 5px;
   background: var(--bg-card);
   border-radius: 999px;
   overflow: hidden;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 .wip-bar-fill {
   height: 100%;
@@ -1171,13 +1173,13 @@ footer {
 }
 
 /* Velocity sparkline */
-.velocity-bars { padding: 12px 0; }
+.velocity-bars { padding: 4px 0; }
 .vel-row {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
+  gap: 8px;
   align-items: end;
-  height: 200px;
+  height: 130px;
 }
 .vel-col {
   display: flex;
@@ -1187,18 +1189,18 @@ footer {
   height: 100%;
 }
 .vel-val {
-  font-size: 20px;
+  font-size: 14px;
   font-weight: 700;
-  color: var(--accent);
-  margin-bottom: 6px;
+  color: var(--text);
+  margin-bottom: 4px;
   font-variant-numeric: tabular-nums;
 }
 .vel-bar {
   width: 100%;
-  max-width: 60px;
+  max-width: 50px;
   background: var(--bg-elevated);
-  border-radius: 8px 8px 0 0;
-  height: 130px;
+  border-radius: 4px 4px 0 0;
+  height: 80px;
   display: flex;
   align-items: end;
   overflow: hidden;
@@ -1221,15 +1223,16 @@ footer {
 .stale-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 8px;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-xs);
   background: var(--bg-elevated);
-  margin-bottom: 6px;
+  margin-bottom: 4px;
   text-decoration: none;
   color: inherit;
-  border-left: 3px solid var(--text-faint);
-  transition: all 0.15s ease;
+  border-left: 2px solid var(--text-faint);
+  transition: all 0.12s ease;
+  font-size: 12px;
 }
 .stale-row:hover { background: var(--bg-hover); transform: translateX(2px); text-decoration: none; }
 .stale-row.stale-warning { border-left-color: var(--warning); }
@@ -1254,11 +1257,10 @@ footer {
 /* ============================================================
    PERFORMANCE TAB — cycle time, quality, throughput, heatmap
    ============================================================ */
-.perf-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
+/* Performance layout */
+.perf-top { display: grid; grid-template-columns: 1fr 1fr 1.5fr; gap: 10px; margin-bottom: 10px; }
+.perf-mid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.perf-bottom { display: grid; grid-template-columns: 1.5fr 1fr; gap: 10px; }
 
 .cycle-grid {
   display: grid;
@@ -1365,10 +1367,12 @@ footer {
 [data-theme="dark"] .heatmap td.hm-4 { background: rgba(96, 165, 250, 1); }
 
 @media (max-width: 1100px) {
-  .overview-grid { grid-template-columns: 1fr; }
-  .wip-block { grid-column: auto; }
-  .perf-grid { grid-template-columns: 1fr; }
+  .ov-top { grid-template-columns: 1fr; }
+  .perf-top { grid-template-columns: 1fr 1fr; }
+  .perf-top .perf-trend { grid-column: 1 / -1; }
+  .perf-mid, .perf-bottom { grid-template-columns: 1fr; }
   .cycle-grid { grid-template-columns: repeat(2, 1fr); }
+  .wip-list { grid-template-columns: 1fr 1fr; }
 }
 
 /* ============================================================

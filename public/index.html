@@ -69,38 +69,31 @@
 
 <!-- OVERVIEW -->
 <section id="tab-overview" class="tab-panel active">
-  <!-- Milestones (top of overview) -->
-  <div class="card-block milestones-block">
-    <div class="card-header">
-      <h3>Milestones &amp; Forecasted Ship Dates</h3>
-      <span class="card-badge">open projects</span>
+  <div class="ov-top">
+    <div class="card-block ov-milestones">
+      <div class="card-header"><h3>Milestones</h3><span class="card-badge">forecast</span></div>
+      <div id="milestones-list"><div class="loading">Loading...</div></div>
     </div>
-    <p class="hint">Forecast uses current velocity. Red = late, yellow = at risk, green = on track.</p>
-    <div id="milestones-list"><div class="loading">Loading...</div></div>
-  </div>
-
-  <div class="overview-grid">
-    <div class="card-block wip-block">
-      <div class="card-header">
-        <h3>WIP per Person</h3>
-        <span class="card-badge">current workload</span>
-      </div>
-      <div class="wip-summary">
-        <div class="wip-stat"><span class="wip-stat-val" id="wip-team-load">--</span><span class="wip-stat-label">Team WIP</span></div>
-        <div class="wip-stat"><span class="wip-stat-val" id="wip-team-cap">--</span><span class="wip-stat-label">Capacity</span></div>
-        <div class="wip-stat"><span class="wip-stat-val" id="wip-team-pct">--</span><span class="wip-stat-label">Utilization</span></div>
-        <div class="wip-stat"><span class="wip-stat-val" id="wip-unassigned">--</span><span class="wip-stat-label">Unassigned</span></div>
-      </div>
-      <div id="wip-list" class="wip-list"><div class="loading">Loading...</div></div>
-    </div>
-    <div class="card-block velocity-block">
-      <div class="card-header"><h3>Velocity</h3><span class="card-badge">PRs merged / week</span></div>
+    <div class="card-block ov-velocity">
+      <div class="card-header"><h3>Velocity</h3><span class="card-badge">PRs / week</span></div>
       <div id="velocity-bars" class="velocity-bars"><div class="loading">Loading...</div></div>
     </div>
-    <div class="card-block stale-block">
-      <div class="card-header"><h3>Stale Tickets</h3><span class="card-badge">no activity 3+ days</span></div>
-      <div id="stale-list"><div class="loading">Checking...</div></div>
+  </div>
+  <div class="card-block ov-wip">
+    <div class="card-header">
+      <h3>WIP</h3>
+      <div class="wip-summary">
+        <div class="wip-stat"><span class="wip-stat-val" id="wip-team-load">--</span><span class="wip-stat-label">WIP</span></div>
+        <div class="wip-stat"><span class="wip-stat-val" id="wip-team-cap">--</span><span class="wip-stat-label">Cap</span></div>
+        <div class="wip-stat"><span class="wip-stat-val" id="wip-team-pct">--</span><span class="wip-stat-label">Util</span></div>
+        <div class="wip-stat"><span class="wip-stat-val" id="wip-unassigned">--</span><span class="wip-stat-label">Open</span></div>
+      </div>
     </div>
+    <div id="wip-list" class="wip-list"><div class="loading">Loading...</div></div>
+  </div>
+  <div class="card-block ov-stale">
+    <div class="card-header"><h3>Stale</h3><span class="card-badge">3+ days no activity</span></div>
+    <div id="stale-list"><div class="loading">Checking...</div></div>
   </div>
 </section>
 
@@ -144,42 +137,42 @@
 
 <!-- PERFORMANCE -->
 <section id="tab-performance" class="tab-panel">
-  <div class="perf-grid">
+  <!-- Row 1: metrics + trend -->
+  <div class="perf-top">
+    <div class="card-block perf-cycle">
+      <div class="card-header"><h3>Cycle Time</h3></div>
+      <div class="cycle-stats" id="cycle-stats"><div class="loading">...</div></div>
+    </div>
+    <div class="card-block perf-quality">
+      <div class="card-header"><h3>Quality</h3></div>
+      <div class="quality-stats" id="quality-stats"><div class="loading">...</div></div>
+    </div>
+    <div class="card-block perf-trend">
+      <div class="card-header"><h3>Trend</h3><span class="card-badge">12 weeks</span></div>
+      <div id="trend-chart"><div class="loading">...</div></div>
+    </div>
+  </div>
+  <!-- Row 2: throughput + backlog -->
+  <div class="perf-mid">
     <div class="card-block">
-      <div class="card-header"><h3>Cycle Time</h3><span class="card-badge">PR open to merge</span></div>
-      <p class="hint">Healthy: P50 ≤ 3d, P90 ≤ 7d</p>
-      <div class="cycle-stats" id="cycle-stats"><div class="loading">Computing...</div></div>
+      <div class="card-header"><h3>Throughput</h3><span class="card-badge">PRs / dev, 30d</span></div>
+      <div id="throughput-list"><div class="loading">...</div></div>
     </div>
     <div class="card-block">
-      <div class="card-header"><h3>Quality</h3><span class="card-badge">bug rate, last 30d</span></div>
-      <p class="hint">Good: under 10%. Warning: over 20%.</p>
-      <div class="quality-stats" id="quality-stats"><div class="loading">Computing...</div></div>
+      <div class="card-header"><h3>PR Backlog</h3><span class="card-badge" id="backlog-badge">waiting</span></div>
+      <div id="backlog-stats" class="cycle-grid" style="margin-bottom:8px"></div>
+      <div id="backlog-list"><div class="loading">...</div></div>
     </div>
+  </div>
+  <!-- Row 3: heatmap + burnout -->
+  <div class="perf-bottom">
     <div class="card-block">
-      <div class="card-header"><h3>Throughput</h3><span class="card-badge">PRs merged per dev, 30d</span></div>
-      <div id="throughput-list"><div class="loading">Loading...</div></div>
+      <div class="card-header"><h3>Activity</h3><span class="card-badge">30d heatmap</span></div>
+      <div id="heatmap-wrap"><div class="loading">...</div></div>
     </div>
-    <div class="card-block">
-      <div class="card-header"><h3>Trend</h3><span class="card-badge">velocity + cycle time, 12 weeks</span></div>
-      <div id="trend-chart"><div class="loading">Loading...</div></div>
-    </div>
-
     <div class="card-block" id="burnout-block" style="display:none">
-      <div class="card-header"><h3>Team Health</h3><span class="card-badge">burnout signals, last 30d</span></div>
-      <p class="hint">Weekend and after-hours (10 PM - 6 AM Hanoi) commits. Sustained patterns indicate burnout risk.</p>
+      <div class="card-header"><h3>Burnout</h3><span class="card-badge">weekend + late</span></div>
       <div id="burnout-list"></div>
-    </div>
-
-    <div class="card-block">
-      <div class="card-header"><h3>PR Review Backlog</h3><span class="card-badge" id="backlog-badge">open PRs waiting</span></div>
-      <p class="hint">PRs waiting for review. Red = 3+ days, yellow = 1+ day. Review lag is the #1 hidden velocity killer.</p>
-      <div id="backlog-stats" class="cycle-grid" style="margin-bottom:16px"></div>
-      <div id="backlog-list"><div class="loading">Loading...</div></div>
-    </div>
-
-    <div class="card-block">
-      <div class="card-header"><h3>Activity</h3><span class="card-badge">commits per dev per day, 30d</span></div>
-      <div id="heatmap-wrap"><div class="loading">Loading...</div></div>
     </div>
   </div>
 </section>
