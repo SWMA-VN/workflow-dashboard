@@ -287,6 +287,8 @@ export default async function handler(req, res) {
   try {
     const { type, content, url, title = "Untitled document" } = req.body || {};
 
+    const isFeedback = req.body?.feedback === true;
+
     if (!content && !url) {
       return res.status(400).json({ error: "Provide 'content' (text) or 'url' (link to fetch)" });
     }
@@ -347,7 +349,7 @@ export default async function handler(req, res) {
 
       const labels = [...(item.labels || [])];
       if (item.priority) labels.push(item.priority.toLowerCase());
-      labels.push("inbox");
+      labels.push(isFeedback ? "customer-feedback" : "inbox");
 
       try {
         const issue = await ghPost(`/repos/${targetRepo}/issues`, {

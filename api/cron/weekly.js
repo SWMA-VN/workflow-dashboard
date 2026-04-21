@@ -1,7 +1,7 @@
 // Vercel Cron — runs Friday 17:00 Hanoi.
 // Weekly report with velocity trend alert if velocity drops 30%+
 
-import { getMetrics, listPulls, listMilestones } from "../../lib/github.js";
+import { getMetrics, listPulls, listMilestones, listCommits } from "../../lib/github.js";
 import { aiSummarize } from "../../lib/ai.js";
 import { postDiscord, makeEmbed } from "../../lib/discord.js";
 import { sendEmail } from "../../lib/email.js";
@@ -68,6 +68,24 @@ Cover: progress this week, what's shipping next week, top 3 risks. If velocity d
 
     const summary = await aiSummarize(prompt, { maxTokens: 2048 });
 
+    // ===== BURNOUT DETECTOR =====
+    const allCommits = await listCommits({ days: 30 });
+    const burnout = {};
+    for (const c of allCommits) {
+      const login = c.author?.login || c.commit?.author?.name || "unknown";
+      if (!burnout[login]) burnout[login] = { weekend: 0, late: 0, total: 0 };
+      burnout[login].total++;
+      const d = new Date(c.commit.author.date || c.commit.committer.date);
+      const hanoiHour = (d.getUTCHours() + 7) % 24;
+      const hanoiDay = new Date(d.getTime() + 7 * 3600000).getDay();
+      if (hanoiDay === 0 || hanoiDay === 6) burnout[login].weekend++;
+      if (hanoiHour >= 22 || hanoiHour < 6) burnout[login].late++;
+    }
+    const burnoutAlerts = Object.entries(burnout)
+      .filter(([_, s]) => s.weekend > 2 || s.late > 2)
+      .map(([login, s]) => `${login}: ${s.weekend} weekend, ${s.late} late-night (of ${s.total} total)`)
+      .join("\n");
+
     // ===== STAKEHOLDER ONE-PAGER =====
     const milestones = await listMilestones();
     const weeklyVel = m.prs_merged.length / 1; // per week
@@ -121,6 +139,8 @@ Cover: progress this week, what's shipping next week, top 3 risks. If velocity d
           <li>Team throughput: <b>${m.prs_merged.length}</b> PRs merged</li>
           <li>Active work: <b>${m.in_progress.length}</b> in progress</li>
         </ul>
+
+        ${burnoutAlerts ? `<h4>Team health signals (30d)</h4><pre style="font-family:inherit">${burnoutAlerts}</pre>` : ""}
       </div>
     `;
 

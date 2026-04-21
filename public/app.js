@@ -575,6 +575,9 @@ async function loadPerformance() {
       }).join("");
     }
 
+    // Burnout detector
+    renderBurnout(data.burnout_alerts || []);
+
     // Review backlog
     renderReviewBacklog(data.review_backlog || [], data.review_backlog_summary || {});
 
@@ -583,6 +586,27 @@ async function loadPerformance() {
   } catch (e) {
     document.getElementById("cycle-stats").innerHTML = `<div class="loading">⚠️ ${escapeHtml(e.message)}</div>`;
   }
+}
+
+function renderBurnout(alerts) {
+  const block = document.getElementById("burnout-block");
+  const list = document.getElementById("burnout-list");
+  if (!block || !list) return;
+  if (!alerts.length) { block.style.display = "none"; return; }
+  block.style.display = "";
+  list.innerHTML = alerts.map((a) => {
+    const riskClass = a.risk === "high" ? "danger" : a.risk === "medium" ? "warning" : "";
+    return `
+      <div class="tp-row">
+        <span class="person-avatar">${avatar(a.login)}</span>
+        <span class="tp-name">${escapeHtml(a.login)}</span>
+        <div style="flex:1">
+          ${a.weekend_commits ? `<span class="label-tag">${a.weekend_commits} weekend</span> ` : ""}
+          ${a.late_night_commits ? `<span class="label-tag">${a.late_night_commits} late-night</span> ` : ""}
+        </div>
+        <span class="label-tag ${riskClass ? `sev-${a.risk}` : ""}" style="${a.risk === 'high' ? 'background:var(--danger-soft);color:var(--danger)' : a.risk === 'medium' ? 'background:var(--warning-soft);color:var(--warning)' : ''}">${a.risk.toUpperCase()}</span>
+      </div>`;
+  }).join("");
 }
 
 function renderReviewBacklog(items, summary) {

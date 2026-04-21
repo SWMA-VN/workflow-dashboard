@@ -152,6 +152,12 @@
       <div class="card-header"><h3>Throughput</h3><span class="card-badge">PRs merged per dev, 30d</span></div>
       <div id="throughput-list"><div class="loading">Loading...</div></div>
     </div>
+    <div class="card-block" id="burnout-block" style="display:none">
+      <div class="card-header"><h3>Team Health</h3><span class="card-badge">burnout signals, last 30d</span></div>
+      <p class="hint">Weekend and after-hours (10 PM - 6 AM Hanoi) commits. Sustained patterns indicate burnout risk.</p>
+      <div id="burnout-list"></div>
+    </div>
+
     <div class="card-block">
       <div class="card-header"><h3>PR Review Backlog</h3><span class="card-badge" id="backlog-badge">open PRs waiting</span></div>
       <p class="hint">PRs waiting for review. Red = 3+ days, yellow = 1+ day. Review lag is the #1 hidden velocity killer.</p>

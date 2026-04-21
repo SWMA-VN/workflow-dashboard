@@ -136,6 +136,36 @@ export default async function handler(req, res) {
         : reviewBacklog.filter((p) => p.age_days > 3).length <= 2 ? "ok" : "slow",
     };
 
+    // ===== BURNOUT DETECTOR =====
+    // Flag devs with weekend or after-hours commits (10 PM - 6 AM Hanoi = 3 PM - 11 PM UTC)
+    const burnoutSignals = {};
+    for (const c of commits) {
+      const login = c.author?.login || c.commit.author.name || "unknown";
+      if (!burnoutSignals[login]) burnoutSignals[login] = { weekend: 0, late_night: 0, total: 0 };
+      burnoutSignals[login].total++;
+
+      const dateStr = c.commit.author.date || c.commit.committer.date;
+      const d = new Date(dateStr);
+      // Convert to Hanoi time (UTC+7)
+      const hanoiHour = (d.getUTCHours() + 7) % 24;
+      const hanoiDay = new Date(d.getTime() + 7 * 3600000).getDay(); // 0=Sun, 6=Sat
+
+      if (hanoiDay === 0 || hanoiDay === 6) burnoutSignals[login].weekend++;
+      if (hanoiHour >= 22 || hanoiHour < 6) burnoutSignals[login].late_night++;
+    }
+
+    const burnoutAlerts = Object.entries(burnoutSignals)
+      .filter(([_, s]) => s.weekend > 0 || s.late_night > 0)
+      .map(([login, s]) => ({
+        login,
+        weekend_commits: s.weekend,
+        late_night_commits: s.late_night,
+        total_commits: s.total,
+        weekend_pct: s.total > 0 ? Math.round((s.weekend / s.total) * 100) : 0,
+        risk: (s.weekend > 5 || s.late_night > 5) ? "high" : (s.weekend > 2 || s.late_night > 2) ? "medium" : "low",
+      }))
+      .sort((a, b) => (b.weekend_commits + b.late_night_commits) - (a.weekend_commits + a.late_night_commits));
+
     res.json({
       generated_at: new Date().toISOString(),
       cycle_time_days: {
@@ -154,6 +184,7 @@ export default async function handler(req, res) {
       commit_heatmap: heatmap,
       review_backlog: reviewBacklog.slice(0, 20),
       review_backlog_summary: backlogSummary,
+      burnout_alerts: burnoutAlerts,
     });
   } catch (e) {
     console.error(e);

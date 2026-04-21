@@ -16,21 +16,25 @@ export default async function handler(req, res) {
       });
     }
 
-    // Time filter: ?days=7 | ?from=2026-01-01&to=2026-04-14 | ?days=0 (all)
+    // Time filter: ?days=7 | ?from=2026-04-20&to=2026-04-20 | ?days=0 (all)
+    // All dates are Hanoi time (UTC+7). API converts to UTC for GitHub queries.
     const fromParam = req.query?.from;
     const toParam = req.query?.to;
-    let daysParam, sinceDate;
+    let daysParam, sinceUtc, toUtc;
 
     if (fromParam) {
-      // Custom date range
-      const fromDate = new Date(fromParam);
-      const toDate = toParam ? new Date(toParam + "T23:59:59Z") : new Date();
-      daysParam = Math.ceil((toDate - fromDate) / 86400000);
-      sinceDate = fromDate.toISOString();
+      // Custom date range — convert Hanoi dates to UTC
+      // Hanoi April 20 00:00 = UTC April 19 17:00
+      sinceUtc = new Date(fromParam + "T00:00:00+07:00").toISOString();
+      toUtc = toParam
+        ? new Date(toParam + "T23:59:59+07:00").toISOString()
+        : new Date().toISOString();
+      daysParam = Math.ceil((new Date(toUtc) - new Date(sinceUtc)) / 86400000);
     } else {
       daysParam = parseInt(req.query?.days) || 7;
       const doneDays = daysParam === 0 ? 365 * 3 : daysParam;
-      sinceDate = new Date(Date.now() - doneDays * 86400000).toISOString();
+      sinceUtc = new Date(Date.now() - doneDays * 86400000).toISOString();
+      toUtc = new Date().toISOString();
     }
 
     const openIssues = await listIssues({ state: "open" });
@@ -38,10 +42,10 @@ export default async function handler(req, res) {
     const realIssues = openIssues.filter((i) => !i.pull_request && !isLog(i));
     const openPrs = openIssues.filter((i) => i.pull_request);
 
-    // Fetch closed issues for Done column (controlled by time filter)
-    const closedIssues = await listIssues({ state: "closed", since: sinceDate });
-    const sinceMs = new Date(sinceDate).getTime();
-    const toMs = toParam ? new Date(toParam + "T23:59:59Z").getTime() : Date.now();
+    // Fetch closed issues for Done column (Hanoi timezone-aware)
+    const closedIssues = await listIssues({ state: "closed", since: sinceUtc });
+    const sinceMs = new Date(sinceUtc).getTime();
+    const toMs = new Date(toUtc).getTime();
     const recentlyClosed = closedIssues.filter((i) => {
       if (i.pull_request || isLog(i) || !i.closed_at) return false;
       const t = new Date(i.closed_at).getTime();
