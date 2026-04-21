@@ -400,6 +400,76 @@ button {
 }
 .filter-info:empty { display: none; }
 
+/* Kanban filter extras */
+.filter-select {
+  padding: 6px 10px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  min-width: 120px;
+}
+.filter-select:focus { outline: none; border-color: var(--accent); }
+.filter-search {
+  padding: 6px 12px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+  width: 160px;
+}
+.filter-search:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+
+/* Card repo badge */
+.card-repo {
+  display: inline-block;
+  font-size: 9px;
+  font-family: "JetBrains Mono", monospace;
+  font-weight: 500;
+  color: var(--text-faint);
+  background: var(--bg-elevated);
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border-soft);
+  margin-left: 6px;
+}
+
+/* Priority dot */
+.card-priority {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+  margin-right: 4px;
+}
+.card-priority.prio-p0 { background: var(--danger); box-shadow: 0 0 4px var(--danger); }
+.card-priority.prio-p1 { background: var(--warning); }
+.card-priority.prio-p2 { background: var(--text-faint); }
+
+/* Milestone badge */
+.card-milestone {
+  font-size: 9px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* Compact mode */
+.kanban.compact .card-title { font-size: 12px; margin: 2px 0 4px; line-height: 1.3; }
+.kanban.compact .card { padding: 8px 10px; margin-bottom: 4px; }
+.kanban.compact .card-meta { display: none; }
+.kanban.compact .card-num { font-size: 10px; }
+
+/* Card hidden by filter */
+.card.filtered-out { display: none; }
+
 /* kanban */
 .kanban {
   display: grid;

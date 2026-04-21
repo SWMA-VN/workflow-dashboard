@@ -130,6 +130,13 @@
         <button class="filter-apply-btn" id="date-apply">Apply</button>
       </div>
     </div>
+    <div class="filter-row" style="margin-top:8px">
+      <span class="filter-label">Filter</span>
+      <select id="filter-assignee" class="filter-select"><option value="">All members</option></select>
+      <select id="filter-repo" class="filter-select"><option value="">All repos</option></select>
+      <input type="text" id="filter-search" class="filter-search" placeholder="Search cards...">
+      <button class="filter-btn" id="kanban-compact-toggle" title="Toggle compact view">Compact</button>
+    </div>
     <div class="filter-info" id="filter-info"></div>
   </div>
   <div class="kanban" id="kanban"></div>
