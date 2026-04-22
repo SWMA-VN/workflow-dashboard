@@ -428,12 +428,10 @@ async function loadGithub() {
   refreshBtn.classList.add("spinning");
   document.getElementById("last-updated").textContent = "loading...";
   try {
-    const filterQuery = filterFrom && filterTo
-      ? `from=${filterFrom}&to=${filterTo}`
-      : `days=${filterDays}`;
     let data;
     try {
-      data = await fetchJson(`/api/github?${filterQuery}`);
+      const fq = filterFrom && filterTo ? `from=${filterFrom}&to=${filterTo}` : `days=${filterDays}`;
+      data = await fetchJson(`/api/github?${fq}`);
       if (data.error) throw new Error(data.error);
       lastGithubData = data; // cache on success
     } catch (fetchErr) {
@@ -509,22 +507,7 @@ async function loadSheets() {
   }
 }
 
-async function loadDiscord() {
-  try {
-    const r = await fetch("/api/config?type=discord-info");
-    if (r.ok) {
-      const { server_id } = await r.json();
-      if (server_id) {
-        document.getElementById("discord-widget-wrap").innerHTML =
-          `<iframe src="https://discord.com/widget?id=${encodeURIComponent(server_id)}&theme=dark" allowtransparency="true" sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts"></iframe>
-           <p class="hint" style="margin-top:12px">Tip: enable Server Widget in Discord → Server Settings → Widget.</p>`;
-        return;
-      }
-    }
-  } catch (e) {}
-  document.getElementById("discord-widget-wrap").innerHTML =
-    'Set <code>DISCORD_SERVER_ID</code> env var in Vercel + enable Server Widget in Discord. See <code>docs/06_discord_widget.md</code>.';
-}
+// loadDiscord removed — tab deleted
 
 async function loadAssign() {
   try {
@@ -670,14 +653,23 @@ document.getElementById("real-btn").addEventListener("click", async () => {
 });
 
 // ======= OVERVIEW TAB =======
+// Single fetch for overview — eliminates 3 duplicate API calls
 async function loadOverview() {
-  await Promise.all([loadHealthScore(), loadCapacity(), loadMilestones(), loadWip(), loadVelocity(), loadStale()]);
+  const filterQuery = filterFrom && filterTo ? `from=${filterFrom}&to=${filterTo}` : `days=${filterDays}`;
+  try {
+    const data = await fetchJson(`/api/github?${filterQuery}`);
+    if (data && !data.error) {
+      renderCapacity(data);
+      renderHealthScore(data);
+      renderMilestonesList(data);
+    }
+  } catch (e) {}
+  await Promise.all([loadWip(), loadVelocity(), loadStale()]);
 }
 
-async function loadCapacity() {
+function renderCapacity(data) {
   try {
-    const data = await fetchJson(`/api/github?days=${filterDays}`);
-    const c = data.capacity;
+    const c = data?.capacity;
     if (!c) return;
     document.getElementById("capacity-rec").textContent = c.recommendation;
     const wrap = document.getElementById("capacity-bars");
@@ -701,10 +693,9 @@ async function loadCapacity() {
   } catch (e) {}
 }
 
-async function loadHealthScore() {
+function renderHealthScore(data) {
   try {
-    const data = await fetchJson(`/api/github?days=${filterDays}`);
-    const h = data.health;
+    const h = data?.health;
     if (!h) return;
 
     // Score number + ring
@@ -886,11 +877,10 @@ async function loadRoadmap() {
   }
 }
 
-async function loadMilestones() {
+function renderMilestonesList(data) {
   const wrap = document.getElementById("milestones-list");
   if (!wrap) return;
   try {
-    const data = await fetchJson(`/api/github?days=${filterDays}`);
     const ms = data.milestones || [];
     if (!ms.length) {
       wrap.innerHTML = '<div class="loading">No open milestones. Create one in GitHub: any repo → Issues → Milestones → New milestone.</div>';
