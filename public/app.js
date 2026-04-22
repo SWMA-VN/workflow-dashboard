@@ -192,32 +192,58 @@ function renderKanban(data) {
       root.appendChild(buildColumn(col, data.columns[col] || [], fAssignee, fRepo, fSearch));
     }
   } else {
-    // Swimlanes: group by repo or assignee
+    // Grouped view: flat list per group (not mini-kanban)
     const groups = {};
     for (const col of COLUMNS) {
       for (const issue of (data.columns[col] || [])) {
+        const repo = repoFromUrl(issue.url);
         let key;
-        if (groupBy === "repo") key = repoFromUrl(issue.url) || "unknown";
+        if (groupBy === "repo") key = repo || "unknown";
         else if (groupBy === "assignee") key = issue.assignees[0] || "unassigned";
         else key = "all";
-        if (!groups[key]) groups[key] = {};
-        if (!groups[key][col]) groups[key][col] = [];
-        groups[key][col].push(issue);
+        if (!groups[key]) groups[key] = [];
+
+        // Apply filters
+        const matchA = !fAssignee || issue.assignees.includes(fAssignee);
+        const matchR = !fRepo || repo === fRepo;
+        const matchS = !fSearch || issue.title.toLowerCase().includes(fSearch) || `#${issue.number}`.includes(fSearch);
+        if (matchA && matchR && matchS) {
+          groups[key].push({ ...issue, _col: col, _repo: repo });
+        }
       }
     }
 
-    const sortedKeys = Object.keys(groups).sort();
+    // Sort groups by card count descending
+    const sortedKeys = Object.keys(groups).sort((a, b) => groups[b].length - groups[a].length);
     for (const key of sortedKeys) {
-      const totalCards = COLUMNS.reduce((s, c) => s + (groups[key][c] || []).length, 0);
+      const items = groups[key];
+      if (!items.length) continue;
       const groupEl = document.createElement("div");
       groupEl.className = "swimlane-group";
-      groupEl.innerHTML = `<div class="swimlane-header">${escapeHtml(key)}<span class="swimlane-count">${totalCards} cards</span></div>`;
-      const kanbanEl = document.createElement("div");
-      kanbanEl.className = "kanban";
-      for (const col of COLUMNS) {
-        kanbanEl.appendChild(buildColumn(col, groups[key][col] || [], fAssignee, fRepo, fSearch));
+      groupEl.innerHTML = `<div class="swimlane-header">${escapeHtml(key)}<span class="swimlane-count">${items.length}</span></div>`;
+
+      const listEl = document.createElement("div");
+      listEl.className = "swimlane-list";
+
+      for (const item of items) {
+        const prio = priorityFromLabels(item.labels);
+        const prioDot = prio ? `<span class="card-priority prio-${prio}"></span>` : "";
+        const statusClass = item._col === "Done" ? "s-done" : item._col === "Blocked" ? "s-blocked" : item._col === "In Review" ? "s-review" : item._col === "In Progress" ? "s-progress" : "s-todo";
+        const assigneeHtml = item.assignees.length ? item.assignees.map((a) => `<span class="assignee">${avatar(a)}</span>`).join("") : "";
+        const repoBadge = item._repo && item._repo !== "workflow-dashboard" ? `<span class="card-repo">${escapeHtml(item._repo)}</span>` : "";
+
+        const row = document.createElement("div");
+        row.className = `swimlane-row ${statusClass}`;
+        row.innerHTML = `
+          <span class="sr-status">${item._col}</span>
+          <span class="sr-num">${prioDot}#${item.number}</span>
+          <span class="sr-title">${escapeHtml(item.title)}</span>
+          <span class="sr-meta">${assigneeHtml}${repoBadge}<span class="card-age">${ago(item.updated_at)}</span></span>`;
+        row.addEventListener("click", () => openSidePanel(item, item._col, item._repo));
+        listEl.appendChild(row);
       }
-      groupEl.appendChild(kanbanEl);
+
+      groupEl.appendChild(listEl);
       root.appendChild(groupEl);
     }
   }

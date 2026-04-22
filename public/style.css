@@ -475,33 +475,86 @@ button {
 .card.dragging { opacity: 0.4; transform: scale(0.96); }
 .column.drag-over { background: var(--accent-soft); border: 2px dashed var(--accent); }
 
-/* Swimlane group */
-.swimlane-group { margin-bottom: 20px; }
+/* Swimlane group — flat list layout */
+.swimlane-group { margin-bottom: 10px; }
 .swimlane-header {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text);
-  padding: 10px 14px;
+  padding: 8px 12px;
   background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 10px 10px 0 0;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
-.swimlane-header .swimlane-count {
-  font-size: 11px;
-  color: var(--text-muted);
+.swimlane-count {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-faint);
   background: var(--bg-elevated);
   padding: 2px 8px;
   border-radius: 999px;
+  font-variant-numeric: tabular-nums;
 }
-.swimlane-group .kanban {
-  border: 1px solid var(--border);
+.swimlane-list {
+  border: 1px solid var(--border-soft);
   border-top: none;
-  border-radius: 0 0 10px 10px;
-  padding: 12px;
-  min-height: auto;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  background: var(--bg-card);
+  overflow: hidden;
+}
+.swimlane-row {
+  display: grid;
+  grid-template-columns: 90px 55px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  cursor: pointer;
+  transition: background 0.1s ease;
+  font-size: 12px;
+}
+.swimlane-row:last-child { border-bottom: none; }
+.swimlane-row:hover { background: var(--bg-hover); }
+
+.sr-status {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  text-align: center;
+  white-space: nowrap;
+}
+.s-todo .sr-status { background: var(--bg-elevated); color: var(--text-faint); }
+.s-progress .sr-status { background: var(--accent-soft); color: var(--accent); }
+.s-review .sr-status { background: var(--purple-soft); color: var(--purple); }
+.s-blocked .sr-status { background: var(--danger-soft); color: var(--danger); }
+.s-done .sr-status { background: var(--success-soft); color: var(--success); }
+
+.sr-num {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.sr-title {
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sr-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 /* Side panel */
