@@ -13,8 +13,12 @@ function ghHeaders() {
 const STATUS_LABELS = ["status:in-progress", "status:in-review", "status:testing"];
 
 export default async function handler(req, res) {
-  // POST = move card between columns
-  if (req.method === "POST") return handleMove(req, res);
+  // POST = move card or plan sprint
+  if (req.method === "POST") {
+    const body = req.body || {};
+    if (body.action === "plan-sprint") return handleSprintPlan(req, res);
+    return handleMove(req, res);
+  }
 
   // No auto-poll. Data fetched only on user action (Refresh, filter, tab switch).
   // No cache-busting from client. Vercel CDN caches 10 min for fast repeat loads.
@@ -204,6 +208,26 @@ export default async function handler(req, res) {
 
     const healthGrade = healthTotal >= 80 ? "excellent" : healthTotal >= 60 ? "good" : healthTotal >= 40 ? "fair" : "poor";
 
+    // ===== BURNDOWN (per milestone) =====
+    const burndownData = milestoneData.filter((ml) => ml.due_on && ml.total > 0).map((ml) => {
+      // Simple burndown: total issues, closed over time
+      return { title: ml.title, total: ml.total, closed: ml.closed, remaining: ml.remaining, due_on: ml.due_on, percent: ml.percent };
+    });
+
+    // ===== NL SEARCH (if ?nlq= param) =====
+    let nlSearchResult = null;
+    const nlq = req.query?.nlq;
+    if (nlq) {
+      try {
+        const { aiSummarize } = await import("../lib/ai.js");
+        const prompt = `Parse this search query into filters. Query: "${nlq}"
+Return JSON: {"assignee":"username or empty","repo":"repo-name or empty","label":"label or empty","text":"keyword"}
+Only JSON, nothing else.`;
+        const raw = await aiSummarize(prompt, { maxTokens: 200 });
+        nlSearchResult = JSON.parse(raw.replace(/```json?\n?/g, "").replace(/```/g, "").trim());
+      } catch (e) { nlSearchResult = null; }
+    }
+
     res.json({
       generated_at: new Date().toISOString(),
       repo: process.env.GITHUB_REPO || process.env.GITHUB_ORG,
@@ -211,6 +235,8 @@ export default async function handler(req, res) {
       filter_from: fromParam || null,
       filter_to: toParam || null,
       health: { score: healthTotal, grade: healthGrade, factors: healthFactors },
+      burndown: burndownData,
+      nl_search: nlSearchResult,
       milestones: milestoneData,
       velocity_per_week: +weeklyVelocity.toFixed(1),
       metrics: {
@@ -283,6 +309,65 @@ async function handleMove(req, res) {
     }
 
     res.json({ ok: true, issue, column });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+}
+
+// AI Sprint Planner
+async function handleSprintPlan(req, res) {
+  try {
+    const { aiSummarize } = await import("../lib/ai.js");
+    const openIssues = await listIssues({ state: "open" });
+    const backlog = openIssues
+      .filter((i) => !i.pull_request && !(i.labels || []).some((l) => l.name === "inbox-history"))
+      .map((i) => {
+        const repo = (i.repository_url || "").replace("https://api.github.com/repos/", "").split("/").pop();
+        const labels = (i.labels || []).map((l) => l.name);
+        const prio = labels.find((l) => ["p0", "p1", "p2"].includes(l)) || "p2";
+        return { number: i.number, title: i.title, repo, assignees: (i.assignees || []).map((a) => a.login), labels, prio, url: i.html_url };
+      });
+
+    let team = {};
+    try { team = JSON.parse(process.env.TEAM_CONFIG || "{}"); } catch {}
+    const teamInfo = Object.entries(team).map(([u, c]) => `${u}: skills=${(c.skills||[]).join(",")}, max=${c.max_open}`).join("\n");
+
+    const prompt = `You are a sprint planning assistant. Select the best 8-10 issues for next week's sprint.
+
+OPEN BACKLOG (${backlog.length} issues):
+${backlog.slice(0, 40).map((i) => `#${i.number} [${i.prio}] ${i.title} (${i.repo}) assigned:${i.assignees.join(",") || "none"}`).join("\n")}
+
+TEAM:
+${teamInfo}
+
+Rules:
+- Pick 8-10 issues max
+- Prioritize P0 > P1 > P2
+- Balance across team members (don't overload one person)
+- Mix of repos/projects
+- Skip issues already assigned to overloaded devs (>3 open)
+
+Return a JSON array of issue numbers, with reason:
+[{"number": 42, "reason": "P0 blocker, assigned to available dev"}, ...]
+
+Return ONLY JSON array.`;
+
+    const raw = await aiSummarize(prompt, { maxTokens: 1500 });
+    let plan = [];
+    try {
+      const cleaned = raw.replace(/```json?\n?/g, "").replace(/```/g, "").trim();
+      plan = JSON.parse(cleaned);
+    } catch (e) {
+      plan = [];
+    }
+
+    // Enrich with issue details
+    const enriched = plan.map((p) => {
+      const issue = backlog.find((i) => i.number === p.number);
+      return issue ? { ...p, title: issue.title, repo: issue.repo, prio: issue.prio, assignees: issue.assignees, url: issue.url } : p;
+    }).filter((p) => p.title);
+
+    res.json({ ok: true, sprint_plan: enriched, backlog_size: backlog.length });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

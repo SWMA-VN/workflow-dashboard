@@ -653,6 +653,94 @@ async function loadHealthScore() {
   } catch (e) {}
 }
 
+// ===== SPRINT PLANNER =====
+document.getElementById("plan-sprint-btn")?.addEventListener("click", async () => {
+  const btn = document.getElementById("plan-sprint-btn");
+  const result = document.getElementById("sprint-plan-result");
+  btn.disabled = true;
+  btn.textContent = "Planning...";
+  result.innerHTML = '<div class="loading">AI analyzing backlog + team capacity...</div>';
+
+  try {
+    const r = await fetch("/api/github", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "plan-sprint" }),
+    });
+    const d = await r.json();
+    if (!d.ok || !d.sprint_plan?.length) {
+      result.innerHTML = '<div class="loading">No suggestions. Add more issues to backlog or check AI key.</div>';
+      return;
+    }
+    result.innerHTML = `
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Suggested ${d.sprint_plan.length} issues from ${d.backlog_size} backlog items</div>
+      ${d.sprint_plan.map((p) => `
+        <div class="swimlane-row s-todo" style="cursor:default">
+          <span class="sr-status">${p.prio?.toUpperCase() || "P1"}</span>
+          <span class="sr-num">#${p.number}</span>
+          <span class="sr-title">${escapeHtml(p.title || "")}</span>
+          <span class="sr-meta"><span class="card-repo">${escapeHtml(p.repo || "")}</span></span>
+        </div>`).join("")}
+      <div style="font-size:10px;color:var(--text-faint);margin-top:8px">Click issues in GitHub to assign to a milestone for tracking.</div>`;
+  } catch (e) {
+    result.innerHTML = `<div class="loading">${escapeHtml(e.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Plan Next Sprint";
+  }
+});
+
+// ===== BURNDOWN =====
+function renderBurndown(data) {
+  const wrap = document.getElementById("burndown-chart");
+  if (!wrap) return;
+  const bd = (data || []).filter((m) => m.total > 0);
+  if (!bd.length) {
+    wrap.innerHTML = '<div class="loading">Assign issues to milestones to see burndown.</div>';
+    return;
+  }
+  wrap.innerHTML = bd.map((m) => {
+    const pct = m.percent;
+    const remaining = m.remaining;
+    const barColor = pct >= 80 ? "var(--success)" : pct >= 40 ? "var(--accent)" : "var(--warning)";
+    return `
+      <div style="margin-bottom:14px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+          <span style="font-size:12px;font-weight:600;color:var(--text)">${escapeHtml(m.title)}</span>
+          <span style="font-size:11px;color:var(--text-muted);font-family:'JetBrains Mono',monospace">${m.closed}/${m.total} done · ${remaining} left · ${pct}%</span>
+        </div>
+        <div style="height:10px;background:var(--bg-elevated);border-radius:5px;overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:${barColor};border-radius:5px;transition:width 0.4s"></div>
+        </div>
+        ${m.due_on ? `<div style="font-size:9px;color:var(--text-faint);margin-top:2px">Target: ${new Date(m.due_on).toISOString().slice(0, 10)}</div>` : ""}
+      </div>`;
+  }).join("");
+}
+
+// ===== NL SEARCH =====
+document.getElementById("filter-search")?.addEventListener("keydown", async (e) => {
+  if (e.key !== "Enter") return;
+  const query = e.target.value.trim();
+  if (!query || query.length < 8) return; // short = normal text filter
+  // Check if it looks like natural language
+  const nlWords = ["show", "find", "list", "get", "what", "who", "which", "all", "from", "last", "this", "bugs", "issues"];
+  const isNL = nlWords.some((w) => query.toLowerCase().includes(w));
+  if (!isNL) return;
+
+  e.target.style.borderColor = "var(--accent)";
+  try {
+    const data = await fetchJson(`/api/github?days=0&nlq=${encodeURIComponent(query)}`);
+    if (data.nl_search) {
+      const ns = data.nl_search;
+      if (ns.assignee) document.getElementById("filter-assignee").value = ns.assignee;
+      if (ns.repo) document.getElementById("filter-repo").value = ns.repo;
+      if (ns.text) document.getElementById("filter-search").value = ns.text;
+      if (_kanbanData) renderKanban(_kanbanData);
+    }
+  } catch (err) {}
+  e.target.style.borderColor = "";
+});
+
 async function loadRoadmap() {
   const wrap = document.getElementById("roadmap-timeline");
   if (!wrap) return;
@@ -1070,7 +1158,7 @@ function renderHeatmap(data) {
 // ======= HASH ROUTING =======
 const TAB_LOADERS = {
   overview: loadOverview,
-  roadmap: loadRoadmap,
+  roadmap: async () => { await loadRoadmap(); try { const d = await fetchJson("/api/github?days=0"); renderBurndown(d.burndown); } catch {} },
   kanban: loadGithub,
   performance: loadPerformance,
   sheets: loadSheets,

@@ -11,7 +11,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
-<link rel="stylesheet" href="style.css?v=3.2">
+<link rel="stylesheet" href="style.css?v=3.3">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='14' height='14' x='1' y='1' rx='3' fill='%232563eb'/%3E%3Ctext x='8' y='12' text-anchor='middle' fill='white' font-size='10' font-weight='bold'%3EP%3C/text%3E%3C/svg%3E">
 
 <script>
@@ -106,14 +106,26 @@
     <div class="card-header"><h3>Stale</h3><span class="card-badge">3+ days no activity</span></div>
     <div id="stale-list"><div class="loading">Checking...</div></div>
   </div>
+  <!-- Sprint Planner -->
+  <div class="card-block">
+    <div class="card-header">
+      <h3>Sprint Planner</h3>
+      <button id="plan-sprint-btn" class="filter-apply-btn">Plan Next Sprint</button>
+    </div>
+    <p class="hint">AI picks 8-10 best issues from backlog based on priority + team capacity.</p>
+    <div id="sprint-plan-result"></div>
+  </div>
 </section>
 
 <!-- ROADMAP -->
 <section id="tab-roadmap" class="tab-panel">
   <div class="card-block">
     <div class="card-header"><h3>Roadmap</h3><span class="card-badge">milestone timeline</span></div>
-    <p class="hint">Horizontal timeline of all milestones. Green = on track, yellow = at risk, red = late. Bar = progress %.</p>
     <div id="roadmap-timeline"><div class="loading">Loading...</div></div>
+  </div>
+  <div class="card-block">
+    <div class="card-header"><h3>Burndown</h3><span class="card-badge">per milestone</span></div>
+    <div id="burndown-chart"><div class="loading">Loading...</div></div>
   </div>
 </section>
 
@@ -146,7 +158,7 @@
       <span class="filter-label">Filter</span>
       <select id="filter-assignee" class="filter-select"><option value="">All members</option></select>
       <select id="filter-repo" class="filter-select"><option value="">All repos</option></select>
-      <input type="text" id="filter-search" class="filter-search" placeholder="Search cards...">
+      <input type="text" id="filter-search" class="filter-search" placeholder="Search or ask: 'show payment bugs'">
       <select id="filter-group" class="filter-select"><option value="">No grouping</option><option value="repo">Group by Repo</option><option value="assignee">Group by Assignee</option></select>
       <button class="filter-btn" id="kanban-compact-toggle" title="Toggle compact view">Compact</button>
     </div>
@@ -310,6 +322,6 @@
   <span>workflowview.vercel.app · v3.0</span>
 </footer>
 
-<script src="app.js?v=3.2"></script>
+<script src="app.js?v=3.3"></script>
 </body>
 </html>
