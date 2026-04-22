@@ -620,7 +620,104 @@ document.getElementById("real-btn").addEventListener("click", async () => {
 
 // ======= OVERVIEW TAB =======
 async function loadOverview() {
-  await Promise.all([loadMilestones(), loadWip(), loadVelocity(), loadStale()]);
+  await Promise.all([loadHealthScore(), loadMilestones(), loadWip(), loadVelocity(), loadStale()]);
+}
+
+async function loadHealthScore() {
+  try {
+    const data = await fetchJson(`/api/github?days=${filterDays}`);
+    const h = data.health;
+    if (!h) return;
+
+    // Score number + ring
+    const ring = document.getElementById("health-ring");
+    const scoreEl = document.getElementById("health-score");
+    if (ring && scoreEl) {
+      scoreEl.textContent = h.score;
+      ring.className = `health-score-ring grade-${h.grade}`;
+    }
+
+    // Factor bars
+    const wrap = document.getElementById("health-factors");
+    if (wrap && h.factors) {
+      wrap.innerHTML = h.factors.map((f) => {
+        const pct = Math.round((f.score / f.max) * 100);
+        const cls = pct >= 75 ? "hf-good" : pct >= 50 ? "hf-ok" : pct >= 25 ? "hf-warn" : "hf-bad";
+        return `<div class="health-factor">
+          <span class="hf-name">${f.name}</span>
+          <div class="hf-bar"><div class="hf-bar-fill ${cls}" style="width:${pct}%"></div></div>
+          <span class="hf-score">${f.score}/${f.max}</span>
+        </div>`;
+      }).join("");
+    }
+  } catch (e) {}
+}
+
+async function loadRoadmap() {
+  const wrap = document.getElementById("roadmap-timeline");
+  if (!wrap) return;
+  try {
+    const data = await fetchJson(`/api/github?days=0`);
+    const ms = (data.milestones || []).filter((m) => m.due_on);
+    if (!ms.length) {
+      wrap.innerHTML = '<div class="loading">No milestones with due dates. Add due dates to milestones in GitHub.</div>';
+      return;
+    }
+
+    // Calculate timeline range
+    const now = Date.now();
+    const dates = ms.flatMap((m) => [new Date(m.due_on).getTime(), m.forecast ? new Date(m.forecast).getTime() : 0]).filter(Boolean);
+    const earliest = Math.min(now - 14 * 86400000, ...dates);
+    const latest = Math.max(now + 30 * 86400000, ...dates) + 14 * 86400000;
+    const range = latest - earliest;
+    const pct = (t) => Math.max(0, Math.min(100, ((t - earliest) / range) * 100));
+
+    // Now marker
+    const nowPct = pct(now);
+
+    let html = '<div class="roadmap-container">';
+
+    // Milestone bars
+    for (const m of ms) {
+      const targetMs = new Date(m.due_on).getTime();
+      const forecastMs = m.forecast ? new Date(m.forecast).getTime() : targetMs;
+      const startPct = Math.max(0, pct(Math.min(now - 30 * 86400000, targetMs - 60 * 86400000)));
+      const endPct = pct(Math.max(targetMs, forecastMs));
+      const barWidth = Math.max(8, endPct - startPct);
+      const targetDate = new Date(m.due_on).toISOString().slice(5, 10);
+      const repoShort = (m.repo || "").split("/").pop();
+
+      html += `
+        <div class="roadmap-item">
+          <div class="rm-label">
+            <div class="rm-name">${escapeHtml(m.title)}</div>
+            <div class="rm-repo">${escapeHtml(repoShort)}</div>
+          </div>
+          <div class="rm-bar-wrap">
+            <div class="rm-bar status-${m.status}" style="left:${startPct}%;width:${barWidth}%">
+              <div class="rm-progress" style="width:${m.percent}%"></div>
+              <div class="rm-info">
+                <span class="rm-pct">${m.percent}%</span>
+                <span class="rm-date">${targetDate}</span>
+                <span class="rm-status-tag">${m.status.replace("-", " ")}</span>
+              </div>
+            </div>
+          </div>
+        </div>`;
+    }
+
+    // Axis with now marker
+    html += `
+      <div style="position:relative;margin:8px 0 0 140px;height:20px">
+        <div style="position:absolute;left:${nowPct}%;top:0;width:1px;height:16px;background:var(--danger)"></div>
+        <div style="position:absolute;left:${nowPct}%;top:16px;font-size:9px;color:var(--danger);transform:translateX(-50%);font-weight:600">Today</div>
+      </div>`;
+
+    html += '</div>';
+    wrap.innerHTML = html;
+  } catch (e) {
+    wrap.innerHTML = '<div class="loading">Click Refresh to retry</div>';
+  }
 }
 
 async function loadMilestones() {
@@ -973,10 +1070,10 @@ function renderHeatmap(data) {
 // ======= HASH ROUTING =======
 const TAB_LOADERS = {
   overview: loadOverview,
+  roadmap: loadRoadmap,
   kanban: loadGithub,
   performance: loadPerformance,
   sheets: loadSheets,
-  discord: loadDiscord,
   assign: loadAssign,
   inbox: loadInboxHistory,
 };

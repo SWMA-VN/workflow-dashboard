@@ -164,12 +164,53 @@ export default async function handler(req, res) {
       return (a.due_on || "9") < (b.due_on || "9") ? -1 : 1;
     });
 
+    // ===== TEAM HEALTH SCORE (0-100) =====
+    // Combines: velocity trend, cycle time, WIP balance, blockers, review lag, stale count
+    const healthFactors = [];
+    let healthTotal = 0;
+
+    // 1. Velocity trend (25 pts): stable or up = good
+    const velScore = m.prs_merged.length > 0 ? Math.min(25, Math.round(m.prs_merged.length / 2)) : 5;
+    healthFactors.push({ name: "Velocity", score: velScore, max: 25, detail: `${m.prs_merged.length} PRs merged` });
+    healthTotal += velScore;
+
+    // 2. Blockers (20 pts): 0 = 20, each blocker -10
+    const blockScore = Math.max(0, 20 - m.blocked.length * 10);
+    healthFactors.push({ name: "Blockers", score: blockScore, max: 20, detail: `${m.blocked.length} blocked` });
+    healthTotal += blockScore;
+
+    // 3. WIP balance (20 pts): under 80% utilization = good
+    let team = {};
+    try { team = JSON.parse(process.env.TEAM_CONFIG || "{}"); } catch {}
+    const teamDevs = Object.keys(team);
+    const totalCap = teamDevs.reduce((s, d) => s + (team[d].max_open || 3), 0) || 15;
+    const totalWip = realIssues.filter((i) => (i.assignees || []).length > 0).length;
+    const wipPct = totalCap ? totalWip / totalCap : 0;
+    const wipScore = wipPct <= 0.6 ? 20 : wipPct <= 0.8 ? 15 : wipPct <= 1.0 ? 10 : 5;
+    healthFactors.push({ name: "WIP Balance", score: wipScore, max: 20, detail: `${Math.round(wipPct * 100)}% utilized` });
+    healthTotal += wipScore;
+
+    // 4. Review lag (20 pts): fewer stale PRs = better
+    const stalePrCount = openPrs.filter((p) => (Date.now() - new Date(p.updated_at).getTime()) > 2 * 86400000).length;
+    const reviewScore = stalePrCount === 0 ? 20 : stalePrCount <= 2 ? 14 : stalePrCount <= 4 ? 8 : 3;
+    healthFactors.push({ name: "Review Speed", score: reviewScore, max: 20, detail: `${stalePrCount} PRs waiting >2d` });
+    healthTotal += reviewScore;
+
+    // 5. Freshness (15 pts): fewer stale issues = better
+    const staleIssueCount = realIssues.filter((i) => (Date.now() - new Date(i.updated_at).getTime()) > 3 * 86400000).length;
+    const freshScore = staleIssueCount === 0 ? 15 : staleIssueCount <= 3 ? 11 : staleIssueCount <= 8 ? 6 : 2;
+    healthFactors.push({ name: "Freshness", score: freshScore, max: 15, detail: `${staleIssueCount} stale issues` });
+    healthTotal += freshScore;
+
+    const healthGrade = healthTotal >= 80 ? "excellent" : healthTotal >= 60 ? "good" : healthTotal >= 40 ? "fair" : "poor";
+
     res.json({
       generated_at: new Date().toISOString(),
       repo: process.env.GITHUB_REPO || process.env.GITHUB_ORG,
       filter_days: daysParam,
       filter_from: fromParam || null,
       filter_to: toParam || null,
+      health: { score: healthTotal, grade: healthGrade, factors: healthFactors },
       milestones: milestoneData,
       velocity_per_week: +weeklyVelocity.toFixed(1),
       metrics: {
