@@ -332,25 +332,15 @@ async function handleSprintPlan(req, res) {
     try { team = JSON.parse(process.env.TEAM_CONFIG || "{}"); } catch {}
     const teamInfo = Object.entries(team).map(([u, c]) => `${u}: skills=${(c.skills||[]).join(",")}, max=${c.max_open}`).join("\n");
 
-    const prompt = `You are a sprint planning assistant. Select the best 8-10 issues for next week's sprint.
+    const prompt = `Pick 8 issues for next sprint from this backlog. Return JSON array only.
 
-OPEN BACKLOG (${backlog.length} issues):
-${backlog.slice(0, 40).map((i) => `#${i.number} [${i.prio}] ${i.title} (${i.repo}) assigned:${i.assignees.join(",") || "none"}`).join("\n")}
+Backlog:
+${backlog.slice(0, 30).map((i) => `${i.number}: [${i.prio}] ${i.title}`).join("\n")}
 
-TEAM:
-${teamInfo}
+Team: ${Object.keys(team).join(", ")}
 
-Rules:
-- Pick 8-10 issues max
-- Prioritize P0 > P1 > P2
-- Balance across team members (don't overload one person)
-- Mix of repos/projects
-- Skip issues already assigned to overloaded devs (>3 open)
-
-Return a JSON array of issue numbers, with reason:
-[{"number": 42, "reason": "P0 blocker, assigned to available dev"}, ...]
-
-Return ONLY JSON array.`;
+Reply format (JSON array, nothing else):
+[{"number":42,"reason":"high priority"},{"number":15,"reason":"quick win"}]`;
 
     const raw = await aiSummarize(prompt, { maxTokens: 1500 });
     let plan = [];
