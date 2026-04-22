@@ -17,6 +17,7 @@ export default async function handler(req, res) {
   if (req.method === "POST") {
     const body = req.body || {};
     if (body.action === "plan-sprint") return handleSprintPlan(req, res);
+    if (body.action === "comment") return handleComment(req, res);
     return handleMove(req, res);
   }
 
@@ -393,6 +394,19 @@ Reply format (JSON array, nothing else):
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+}
+
+async function handleComment(req, res) {
+  try {
+    const { repo, issue, body: commentBody } = req.body || {};
+    if (!repo || !issue || !commentBody) return res.status(400).json({ error: "need repo, issue, body" });
+    const r = await fetch(`${GH_API}/repos/${repo}/issues/${issue}/comments`, {
+      method: "POST", headers: ghHeaders(),
+      body: JSON.stringify({ body: commentBody }),
+    });
+    if (!r.ok) throw new Error(`GitHub ${r.status}`);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 }
 
 function simplifyIssue(issue) {

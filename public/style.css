@@ -649,6 +649,15 @@ button {
 }
 .sp-move-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
 
+.sp-comments { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+.sp-comment-form { display: flex; gap: 6px; margin-top: 6px; }
+.sp-comment-input {
+  flex: 1; padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font-size: 12px; font-family: inherit; background: var(--bg); color: var(--text);
+}
+.sp-comment-input:focus { outline: none; border-color: var(--accent); }
+.sp-comments-list { margin-top: 8px; font-size: 11px; }
+
 /* kanban */
 .kanban {
   display: grid;

@@ -273,6 +273,9 @@ function openSidePanel(issue, col, repo) {
   document.getElementById("sp-labels").textContent = issue.labels.filter((l) => !["pull-request","merged"].includes(l)).join(", ") || "—";
   document.getElementById("sp-updated").textContent = new Date(issue.updated_at).toLocaleString();
 
+  // Load comments
+  loadComments(issue, repo);
+
   // Highlight current column in move buttons
   document.querySelectorAll(".sp-move-btn").forEach((btn) => {
     btn.style.background = btn.dataset.col === col ? "var(--accent)" : "";
@@ -289,6 +292,44 @@ function openSidePanel(issue, col, repo) {
 document.getElementById("sp-close")?.addEventListener("click", () => document.getElementById("side-panel").classList.add("hidden"));
 document.getElementById("side-panel-overlay")?.addEventListener("click", () => document.getElementById("side-panel").classList.add("hidden"));
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") document.getElementById("side-panel")?.classList.add("hidden"); });
+
+// ===== COMMENTS IN SIDE PANEL =====
+let _currentIssueForComment = null;
+
+function loadComments(issue, repo) {
+  _currentIssueForComment = { number: issue.number, repo };
+  const list = document.getElementById("sp-comments-list");
+  if (!list) return;
+  list.innerHTML = '<span style="font-size:11px;color:var(--text-faint)">Comments load from GitHub on send.</span>';
+}
+
+document.getElementById("sp-comment-send")?.addEventListener("click", async () => {
+  const input = document.getElementById("sp-comment-input");
+  const text = input?.value?.trim();
+  if (!text || !_currentIssueForComment) return;
+
+  const btn = document.getElementById("sp-comment-send");
+  btn.disabled = true; btn.textContent = "...";
+
+  try {
+    const fullRepo = _currentIssueForComment.repo.includes("/") ? _currentIssueForComment.repo : `SWMA-VN/${_currentIssueForComment.repo}`;
+    await fetch("/api/github", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "comment", repo: fullRepo, issue: _currentIssueForComment.number, body: text }),
+    });
+    input.value = "";
+    document.getElementById("sp-comments-list").innerHTML = `<div style="font-size:11px;color:var(--success);padding:4px 0">Comment posted.</div>`;
+  } catch (e) {
+    document.getElementById("sp-comments-list").innerHTML = `<div style="font-size:11px;color:var(--danger)">${e.message}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = "Send";
+  }
+});
+
+document.getElementById("sp-comment-input")?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") document.getElementById("sp-comment-send")?.click();
+});
 
 // ===== MOVE CARD (drag-drop + side panel) =====
 async function moveCard(repo, issueNumber, targetColumn) {
@@ -1048,6 +1089,9 @@ async function loadPerformance() {
     // Monthly trend
     renderTrend(data.monthly_trend || []);
 
+    // Sprint comparison
+    renderSprintCompare(data.monthly_trend || []);
+
     // Burnout detector
     renderBurnout(data.burnout_alerts || []);
 
@@ -1083,6 +1127,36 @@ function renderTrend(weeks) {
       <span>12 weeks ago</span>
       <span>Bar = PRs merged / Bottom = cycle time P50</span>
       <span>This week</span>
+    </div>`;
+}
+
+function renderSprintCompare(weeks) {
+  const wrap = document.getElementById("sprint-compare");
+  if (!wrap || weeks.length < 2) { if (wrap) wrap.innerHTML = '<div class="loading">Need 2+ weeks of data.</div>'; return; }
+  const thisWeek = weeks[weeks.length - 1];
+  const lastWeek = weeks[weeks.length - 2];
+  const twoAgo = weeks.length >= 3 ? weeks[weeks.length - 3] : null;
+
+  const compare = (label, cur, prev) => {
+    const diff = cur - prev;
+    const pct = prev > 0 ? Math.round((diff / prev) * 100) : 0;
+    const arrow = diff > 0 ? "up" : diff < 0 ? "down" : "flat";
+    const color = arrow === "up" ? "var(--success)" : arrow === "down" ? "var(--danger)" : "var(--text-muted)";
+    return `<div class="cycle-stat">
+      <div class="cycle-val" style="color:${color}">${cur}</div>
+      <div class="cycle-label">${label}</div>
+      <div style="font-size:9px;color:${color};margin-top:2px">${diff >= 0 ? "+" : ""}${diff} (${pct >= 0 ? "+" : ""}${pct}%)</div>
+    </div>`;
+  };
+
+  wrap.innerHTML = `
+    <div class="cycle-grid" style="grid-template-columns:repeat(3,1fr)">
+      ${compare("This week PRs", thisWeek.merged, lastWeek.merged)}
+      ${compare("Last week PRs", lastWeek.merged, twoAgo ? twoAgo.merged : lastWeek.merged)}
+      <div class="cycle-stat">
+        <div class="cycle-val">${thisWeek.cycle_p50 != null ? thisWeek.cycle_p50 + "d" : "—"}</div>
+        <div class="cycle-label">Cycle P50 (this wk)</div>
+      </div>
     </div>`;
 }
 
@@ -1339,11 +1413,14 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// Client view: hide internal tabs
+// Client view: show only Overview, Roadmap, Kanban
 if (new URLSearchParams(window.location.search).get("view") === "client") {
   document.querySelectorAll('.tab[data-tab="performance"], .tab[data-tab="people"], .tab[data-tab="sheets"], .tab[data-tab="inbox"], .tab[data-tab="assign"]').forEach((t) => t.style.display = "none");
-  document.querySelector(".metrics")?.remove(); // hide raw metrics
+  document.querySelector(".metrics")?.remove();
   document.querySelector("header .badge.live")?.remove();
+  document.querySelector(".ov-wip")?.remove(); // hide WIP details
+  document.querySelector(".ov-stale")?.remove(); // hide stale
+  document.querySelector("[id='plan-sprint-btn']")?.parentElement?.parentElement?.remove(); // hide sprint planner
   const h1 = document.querySelector("header h1");
   if (h1) h1.textContent = "Project Dashboard";
 }
