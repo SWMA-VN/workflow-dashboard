@@ -65,11 +65,17 @@ export default async function handler(req, res) {
 
     const cols = Object.fromEntries(COLUMNS.map((c) => [c, []]));
 
+    // Filter open issues by updated_at within the selected time period
+    const filterOpenMs = new Date(sinceUtc).getTime();
+
     for (const issue of realIssues) {
+      // Skip open issues not updated within the filter period
+      const updatedMs = new Date(issue.updated_at).getTime();
+      if (updatedMs < filterOpenMs) continue;
+
       const labels = (issue.labels || []).map((l) => l.name.toLowerCase());
       let col = "Todo";
 
-      // Priority: blocked > status labels > assignee fallback
       if (labels.includes("block") || labels.includes("blocked") || labels.includes("blocker")) {
         col = "Blocked";
       } else if (labels.includes("status:testing") || labels.includes("status:in-review")) {
@@ -77,7 +83,6 @@ export default async function handler(req, res) {
       } else if (labels.includes("status:in-progress")) {
         col = "In Progress";
       } else if ((issue.assignees || []).length > 0) {
-        // Assigned but no status label yet → In Progress
         col = "In Progress";
       }
 
@@ -85,6 +90,7 @@ export default async function handler(req, res) {
     }
 
     for (const pr of openPrs) {
+      if (new Date(pr.updated_at).getTime() < filterOpenMs) continue;
       cols["In Review"].push({
         number: pr.number,
         title: `PR: ${pr.title}`,
