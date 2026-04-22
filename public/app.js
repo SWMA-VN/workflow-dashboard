@@ -105,8 +105,18 @@ function buildCard(issue, col) {
   const prioDot = prio ? `<span class="card-priority prio-${prio}" title="${prio.toUpperCase()}"></span>` : "";
   const repoBadge = repo && repo !== "workflow-dashboard" ? `<span class="card-repo">${escapeHtml(repo)}</span>` : "";
 
+  // SLA timer: P0=24h, P1=3d, P2=7d
+  let slaHtml = "";
+  if (prio && col !== "Done" && issue.created_at) {
+    const slaH = prio === "p0" ? 24 : prio === "p1" ? 72 : 168;
+    const elapsed = (Date.now() - new Date(issue.created_at).getTime()) / 3600000;
+    const rem = slaH - elapsed;
+    if (rem < 0) slaHtml = `<span class="sla-tag sla-breached">${Math.round(-rem)}h over</span>`;
+    else if (rem < slaH * 0.25) slaHtml = `<span class="sla-tag sla-urgent">${rem < 24 ? Math.round(rem) + "h" : Math.round(rem / 24) + "d"}</span>`;
+  }
+
   card.innerHTML = `
-    <div class="card-num">${prioDot}#${issue.number}${repoBadge}</div>
+    <div class="card-num">${prioDot}#${issue.number}${repoBadge}${slaHtml}</div>
     <div class="card-title">${escapeHtml(issue.title)}</div>
     <div class="card-meta">${assigneeHtml}${displayLabels}<span class="card-age">${ago(issue.updated_at)}</span></div>`;
 
@@ -620,7 +630,34 @@ document.getElementById("real-btn").addEventListener("click", async () => {
 
 // ======= OVERVIEW TAB =======
 async function loadOverview() {
-  await Promise.all([loadHealthScore(), loadMilestones(), loadWip(), loadVelocity(), loadStale()]);
+  await Promise.all([loadHealthScore(), loadCapacity(), loadMilestones(), loadWip(), loadVelocity(), loadStale()]);
+}
+
+async function loadCapacity() {
+  try {
+    const data = await fetchJson(`/api/github?days=${filterDays}`);
+    const c = data.capacity;
+    if (!c) return;
+    document.getElementById("capacity-rec").textContent = c.recommendation;
+    const wrap = document.getElementById("capacity-bars");
+    if (!wrap) return;
+    wrap.innerHTML = `
+      <div style="display:flex;gap:4px;margin-bottom:8px">
+        <div class="wip-stat"><span class="wip-stat-val">${c.committed}</span><span class="wip-stat-label">Committed</span></div>
+        <div class="wip-stat"><span class="wip-stat-val">${c.total_slots}</span><span class="wip-stat-label">Capacity</span></div>
+        <div class="wip-stat"><span class="wip-stat-val" style="color:${c.overloaded ? 'var(--danger)' : 'var(--success)'}">${c.available}</span><span class="wip-stat-label">Available</span></div>
+        <div class="wip-stat"><span class="wip-stat-val">${c.utilization_pct}%</span><span class="wip-stat-label">Util</span></div>
+      </div>
+      ${c.per_dev.map((d) => {
+        const pct = d.max ? Math.min(100, Math.round((d.open / d.max) * 100)) : 0;
+        const color = d.overloaded ? "var(--danger)" : pct > 66 ? "var(--warning)" : "var(--success)";
+        return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;font-size:11px">
+          <span style="width:100px;font-weight:500">${escapeHtml(d.login)}</span>
+          <div style="flex:1;height:4px;background:var(--bg-elevated);border-radius:2px;overflow:hidden"><div style="height:100%;width:${pct}%;background:${color};border-radius:2px"></div></div>
+          <span style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--text-faint);min-width:35px;text-align:right">${d.open}/${d.max}</span>
+        </div>`;
+      }).join("")}`;
+  } catch (e) {}
 }
 
 async function loadHealthScore() {
@@ -824,14 +861,17 @@ async function loadMilestones() {
       const targetDate = m.due_on ? new Date(m.due_on).toISOString().slice(0, 10) : null;
       const offsetLabel = m.days_offset > 0 ? `+${m.days_offset}d late` : m.days_offset < 0 ? `${Math.abs(m.days_offset)}d ahead` : "on target";
       const repoName = (m.repo || "").split("/").pop();
+      const risk = m.risk || {};
+      const riskHtml = risk.factors?.length ? `<span class="sla-tag ${risk.level === 'high' ? 'sla-breached' : risk.level === 'medium' ? 'sla-urgent' : ''}" title="${(risk.factors||[]).join(', ')}">${risk.level} risk</span>` : "";
       return `
         <a href="${m.url}" target="_blank" class="milestone-row status-${m.status}">
           <div>
-            <div class="milestone-title">${escapeHtml(m.title)}</div>
+            <div class="milestone-title">${escapeHtml(m.title)} ${riskHtml}</div>
             <div class="milestone-meta">
-              ${m.closed}/${m.total} tasks · repo: ${escapeHtml(repoName)}
+              ${m.closed}/${m.total} tasks · ${escapeHtml(repoName)}
               ${targetDate ? ` · target: ${targetDate}` : ""}
               ${forecastDate ? ` · forecast: ${forecastDate} (${offsetLabel})` : ""}
+              ${risk.factors?.length ? ` · ${risk.factors[0]}` : ""}
             </div>
             <div class="milestone-bar"><div class="milestone-bar-fill" style="width:${pct}%"></div></div>
           </div>

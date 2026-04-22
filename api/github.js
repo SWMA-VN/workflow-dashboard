@@ -148,6 +148,17 @@ export default async function handler(req, res) {
         }
       }
 
+      // Risk predictor (deterministic, no AI)
+      let riskScore = 0;
+      const risks = [];
+      if (ml.due_on && daysOffset > 3) { riskScore += 30; risks.push(`${daysOffset}d behind target`); }
+      if (status === "empty") { riskScore += 10; risks.push("no issues assigned"); }
+      if (remaining > 0 && ml.due_on) {
+        const daysLeft = (new Date(ml.due_on).getTime() - Date.now()) / 86400000;
+        if (daysLeft < 14 && percent < 50) { riskScore += 25; risks.push(`${Math.round(daysLeft)}d left but only ${percent}% done`); }
+      }
+      const riskLevel = riskScore >= 40 ? "high" : riskScore >= 15 ? "medium" : "low";
+
       return {
         number: ml.number,
         title: ml.title,
@@ -160,6 +171,7 @@ export default async function handler(req, res) {
         forecast,
         days_offset: daysOffset,
         status,
+        risk: { score: riskScore, level: riskLevel, factors: risks },
       };
     }).sort((a, b) => {
       // At-risk first, then by due date
@@ -208,6 +220,25 @@ export default async function handler(req, res) {
 
     const healthGrade = healthTotal >= 80 ? "excellent" : healthTotal >= 60 ? "good" : healthTotal >= 40 ? "fair" : "poor";
 
+    // ===== CAPACITY PLANNER =====
+    const capacity = {
+      total_slots: totalCap,
+      committed: totalWip,
+      available: Math.max(0, totalCap - totalWip),
+      utilization_pct: totalCap ? Math.round((totalWip / totalCap) * 100) : 0,
+      overloaded: totalWip > totalCap,
+      per_dev: teamDevs.map((d) => {
+        const open = realIssues.filter((i) => (i.assignees || []).some((a) => a.login === d)).length;
+        const max = team[d].max_open || 3;
+        return { login: d, open, max, available: Math.max(0, max - open), overloaded: open > max };
+      }),
+      recommendation: totalWip > totalCap
+        ? `Team overloaded by ${totalWip - totalCap} tasks. Reassign or defer.`
+        : totalWip > totalCap * 0.8
+        ? `${totalCap - totalWip} slots left. Near capacity.`
+        : `${totalCap - totalWip} slots available. Room for new work.`,
+    };
+
     // ===== BURNDOWN (per milestone) =====
     const burndownData = milestoneData.filter((ml) => ml.due_on && ml.total > 0).map((ml) => {
       // Simple burndown: total issues, closed over time
@@ -235,6 +266,7 @@ Only JSON, nothing else.`;
       filter_from: fromParam || null,
       filter_to: toParam || null,
       health: { score: healthTotal, grade: healthGrade, factors: healthFactors },
+      capacity,
       burndown: burndownData,
       nl_search: nlSearchResult,
       milestones: milestoneData,

@@ -461,6 +461,21 @@ button {
   white-space: nowrap;
 }
 
+/* SLA tags */
+.sla-tag {
+  display: inline-block;
+  font-size: 8px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.sla-breached { background: var(--danger-soft); color: var(--danger); }
+.sla-urgent { background: var(--warning-soft); color: var(--warning); }
+
 /* Compact mode */
 .kanban.compact .card-title { font-size: 12px; margin: 2px 0 4px; line-height: 1.3; }
 .kanban.compact .card { padding: 8px 10px; margin-bottom: 4px; }
