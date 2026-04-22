@@ -119,22 +119,22 @@ export default async function handler(req, res) {
       return { member: mb, yesterdayDone: yDone, yesterdayWip: yWip, todayPlan: tToday, todayYesterdayRecap: (tMorn[mb] || {}).yesterday || "—", status, statusTag, ghCommits: ghAct.commits };
     });
 
-    // DELIVERY FOCUS — per member (status + focus theme)
+    // Compact: one line per member
     const focusBlock = memberRows.map((l) => {
-      const focus = pickFocus(l.todayPlan !== "—" ? l.todayPlan : (l.yesterdayWip !== "—" ? l.yesterdayWip : l.yesterdayDone));
-      return `${l.statusTag} **${l.member}** — _${l.status}_\n> ${focus}`;
-    }).join("\n\n");
+      const y = l.yesterdayDone && l.yesterdayDone !== "—" ? truncate(l.yesterdayDone.split("\n")[0], 45) : "";
+      const t = l.todayPlan && l.todayPlan !== "—" ? truncate(l.todayPlan.split("\n")[0], 45) : "";
+      const summary = [y, t].filter(Boolean).join(" → ") || "quiet";
+      return `${l.statusTag} **${l.member}** ${summary}`;
+    }).join("\n");
 
-    // YESTERDAY DONE — per member
     const yesterdayDoneBlock = memberRows
       .filter((l) => l.yesterdayDone && l.yesterdayDone !== "—")
-      .map((l) => `**${l.member}**\n> ${truncate(l.yesterdayDone, 200)}`)
-      .join("\n\n");
+      .map((l) => `**${l.member}**: ${truncate(l.yesterdayDone.replace(/\n/g, ", "), 100)}`)
+      .join("\n");
 
-    // TODAY PLAN — per member (compact)
     const todayPlanBlock = memberRows
       .filter((l) => l.todayPlan && l.todayPlan !== "—")
-      .map((l) => `**${l.member}**: ${truncate(l.todayPlan, 120)}`)
+      .map((l) => `**${l.member}**: ${truncate(l.todayPlan.replace(/\n/g, ", "), 100)}`)
       .join("\n");
 
     // AI brief — always analyzes GitHub activity if sheet is empty
@@ -151,22 +151,20 @@ TEAM-ONLY GITHUB ACTIVITY yesterday (excludes client users):
 - Currently in-progress: ${inProgressGh.length}
 - Blockers: ${m.blocked.length}
 
-Write a COMPACT 3-4 sentence briefing:
-1. What shipped yesterday (name devs + features)
-2. Top 2-3 priorities today
-3. Any risk (blockers, stale, overload)
-Be specific. Never say "no data". Use GitHub activity.`;
+Write EXACTLY 3 short sentences, max 40 words total:
+1. What shipped yesterday (names + features)
+2. Today's top priorities
+3. One risk if any
+No filler. No "stale items". No "no data". Names + features only.`;
 
     const aiSummary = await aiSummarize(prompt, { maxTokens: 1500 });
 
-    // Discord: AI summary + focus + yesterday done + today plan + stats
-    const statsLine = `closed ${teamIssuesClosed.length} | merged ${teamMergedPrs.length} | commits ${teamCommits.length} | WIP ${inProgressGh.length} | blockers ${m.blocked.length}`;
+    // Morning format: AI (3 lines) + focus + yesterday + today. Nothing else.
     const fields = [
-      { name: `Delivery Focus — per member today`, value: truncate(focusBlock, 1024), inline: false },
+      { name: `Focus (${memberRows.length})`, value: truncate(focusBlock, 1024), inline: false },
     ];
-    if (yesterdayDoneBlock) fields.push({ name: `Yesterday (${yesterdayStr}) — Done per member`, value: truncate(yesterdayDoneBlock, 1024), inline: false });
-    if (todayPlanBlock) fields.push({ name: `Today (${todayStr}) — Plan`, value: truncate(todayPlanBlock, 1024), inline: false });
-    fields.push({ name: "GitHub", value: statsLine, inline: false });
+    if (yesterdayDoneBlock) fields.push({ name: `Yesterday (${yesterdayStr})`, value: truncate(yesterdayDoneBlock, 1024), inline: false });
+    if (todayPlanBlock) fields.push({ name: `Today (${todayStr})`, value: truncate(todayPlanBlock, 1024), inline: false });
 
     await postDiscord({
       content: `**Morning Briefing — ${projectName}** — ${todayStr} (Hanoi)`,
