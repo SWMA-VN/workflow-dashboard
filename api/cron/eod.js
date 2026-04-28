@@ -139,12 +139,12 @@ export default async function handler(req, res) {
 
     const doneText = memberLines
       .filter((l) => l.done && l.done !== "—")
-      .map((l) => `**${l.member}**: ${truncate(l.done.replace(/\n/g, ", "), 100)}`)
+      .map((l) => `**${l.member}**: ${truncate(l.done.replace(/\n/g, ", "), 150)}`)
       .join("\n");
 
     const wipText = memberLines
       .filter((l) => l.inProgress && l.inProgress !== "—")
-      .map((l) => `**${l.member}**: ${truncate(l.inProgress.replace(/\n/g, ", "), 100)}`)
+      .map((l) => `**${l.member}**: ${truncate(l.inProgress.replace(/\n/g, ", "), 150)}`)
       .join("\n");
 
     // Team-only GitHub aggregates (excludes client users like @vamadeus)

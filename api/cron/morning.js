@@ -130,12 +130,12 @@ export default async function handler(req, res) {
 
     const yesterdayDoneBlock = memberRows
       .filter((l) => l.yesterdayDone && l.yesterdayDone !== "—")
-      .map((l) => `**${l.member}**: ${truncate(l.yesterdayDone.replace(/\n/g, ", "), 100)}`)
+      .map((l) => `**${l.member}**: ${truncate(l.yesterdayDone.replace(/\n/g, ", "), 150)}`)
       .join("\n");
 
     const todayPlanBlock = memberRows
       .filter((l) => l.todayPlan && l.todayPlan !== "—")
-      .map((l) => `**${l.member}**: ${truncate(l.todayPlan.replace(/\n/g, ", "), 100)}`)
+      .map((l) => `**${l.member}**: ${truncate(l.todayPlan.replace(/\n/g, ", "), 150)}`)
       .join("\n");
 
     // AI brief — always analyzes GitHub activity if sheet is empty
