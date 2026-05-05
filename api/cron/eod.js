@@ -47,11 +47,16 @@ export default async function handler(req, res) {
     // === GitHub: today's activity ===
     const m = await getMetrics({ days: 1 });
 
-    // Exclude client/non-team users from team aggregate counts
+    // Exclude: client users + cleanup closures (not_planned / old issues closed as housekeeping)
     const isExcluded = (login) => login && excludedUsers.includes(login.toLowerCase());
     const teamMergedPrs = m.prs_merged.filter((p) => !isExcluded(p.user?.login));
     const teamCommits = m.commits.filter((c) => !isExcluded(c.author?.login || c.commit?.author?.name));
-    const teamIssuesClosed = m.issues_closed.filter((i) => !(i.assignees || []).every((a) => isExcluded(a.login)));
+    const teamIssuesClosed = m.issues_closed.filter((i) => {
+      if ((i.assignees || []).every((a) => isExcluded(a.login))) return false;
+      // Skip old issues closed as cleanup (created >14 days ago, likely housekeeping)
+      if (i.created_at && (Date.now() - new Date(i.created_at).getTime()) > 14 * 86400000) return false;
+      return true;
+    });
 
     const openIssues = await listIssues({ state: "open" });
     const realIssues = openIssues.filter((i) => !i.pull_request);
