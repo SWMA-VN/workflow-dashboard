@@ -1,18 +1,11 @@
 // POST /api/webhook
-// GitHub webhook receiver. Handles:
-//   1. Auto-assign on new issues
-//   2. Auto-status tracking (labels) based on dev actions:
-//      - assigned → status:in-progress
-//      - PR opened referencing issue → status:in-review
-//      - PR merged referencing issue → status:testing
-//      - issue closed → Done (all status labels removed)
-//      - label "blocked" → Blocked
-//   3. Discord notifications for key events
-//
-// Required webhook events: Issues, Pull requests, Pushes
+// GitHub webhook receiver.
+// - NO auto-assign (removed — PM assigns manually)
+// - NO actions on @vamadeus issues (client — completely ignored)
+// - Status tracking only for team-created issues
+// - Discord notifications for key events
 
 import crypto from "node:crypto";
-import { assignAndAnnounce } from "../lib/assign.js";
 import { postDiscord, makeEmbed } from "../lib/discord.js";
 
 export const config = { api: { bodyParser: false } };
@@ -36,7 +29,6 @@ function verifySignature(payload, signature, secret) {
   }
 }
 
-// GitHub API helpers
 function ghHeaders() {
   return {
     Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
@@ -46,29 +38,21 @@ function ghHeaders() {
 }
 
 async function setStatusLabel(repo, issueNumber, newStatus) {
-  // Remove all existing status labels, then add the new one
   try {
-    // Get current labels
     const r = await fetch(`${GH_API}/repos/${repo}/issues/${issueNumber}/labels`, { headers: ghHeaders() });
     if (!r.ok) return;
     const labels = await r.json();
     const currentStatus = labels.filter((l) => STATUS_LABELS.includes(l.name));
-
-    // Remove old status labels
     for (const old of currentStatus) {
       if (old.name !== newStatus) {
         await fetch(`${GH_API}/repos/${repo}/issues/${issueNumber}/labels/${encodeURIComponent(old.name)}`, {
-          method: "DELETE",
-          headers: ghHeaders(),
+          method: "DELETE", headers: ghHeaders(),
         });
       }
     }
-
-    // Add new status label (if not already present)
     if (newStatus && !currentStatus.some((l) => l.name === newStatus)) {
       await fetch(`${GH_API}/repos/${repo}/issues/${issueNumber}/labels`, {
-        method: "POST",
-        headers: ghHeaders(),
+        method: "POST", headers: ghHeaders(),
         body: JSON.stringify({ labels: [newStatus] }),
       });
     }
@@ -79,77 +63,23 @@ async function setStatusLabel(repo, issueNumber, newStatus) {
 
 async function clearStatusLabels(repo, issueNumber) {
   try {
-    for (const label of STATUS_LABELS) {
+    for (const label of [...STATUS_LABELS, "Block"]) {
       await fetch(`${GH_API}/repos/${repo}/issues/${issueNumber}/labels/${encodeURIComponent(label)}`, {
-        method: "DELETE",
-        headers: ghHeaders(),
+        method: "DELETE", headers: ghHeaders(),
       }).catch(() => {});
     }
-  } catch (e) {
-    console.error(`[webhook] clearStatusLabels error:`, e.message);
-  }
+  } catch (e) {}
 }
 
-// Parse issue numbers from PR — fully automatic, zero dev effort.
-// Priority:
-//   1. Explicit refs in body/title: "Closes #42", "#42"
-//   2. Branch name: "35-backend-api" → issue #35
-//   3. Fallback: find open issues assigned to PR author → auto-match
+// Parse issue numbers from PR body + branch name
 async function parseIssueRefs(pr, repo) {
   const text = `${pr.title || ""} ${pr.body || ""}`;
   const matches = [...text.matchAll(/(?:closes?|fixes?|resolves?|refs?)?\s*#(\d+)/gi)];
   const nums = new Set(matches.map((m) => parseInt(m[1])));
-
-  // Branch name: "35-backend-api", "feature/42-payment"
   const branch = pr.head?.ref || "";
   const branchMatch = branch.match(/(?:^|[\/\-_])(\d+)(?:[\/\-_]|$)/);
   if (branchMatch) nums.add(parseInt(branchMatch[1]));
-
-  // Filter out PR's own number
-  const explicit = [...nums].filter((n) => n !== pr.number && n > 0);
-  if (explicit.length) return explicit;
-
-  // === FALLBACK: auto-detect from dev's assigned issues ===
-  // If dev didn't reference any issue, find their open in-progress issues
-  const author = pr.user?.login;
-  if (!author || !repo) return [];
-
-  try {
-    const r = await fetch(`${GH_API}/repos/${repo}/issues?state=open&assignee=${author}&per_page=20`, {
-      headers: ghHeaders(),
-    });
-    if (!r.ok) return [];
-    const issues = (await r.json()).filter((i) => !i.pull_request);
-
-    if (issues.length === 0) return [];
-
-    // If dev has exactly 1 open issue → that's clearly what this PR is for
-    if (issues.length === 1) return [issues[0].number];
-
-    // Multiple issues: pick the one with status:in-progress label (most likely)
-    const inProgress = issues.filter((i) =>
-      (i.labels || []).some((l) => l.name === "status:in-progress")
-    );
-    if (inProgress.length === 1) return [inProgress[0].number];
-
-    // Still multiple: keyword-match PR title against issue titles
-    const prWords = (pr.title || "").toLowerCase().split(/\W+/).filter((w) => w.length > 3);
-    let bestMatch = null, bestScore = 0;
-    for (const issue of (inProgress.length ? inProgress : issues)) {
-      const issueWords = issue.title.toLowerCase().split(/\W+/).filter((w) => w.length > 3);
-      const score = prWords.filter((w) => issueWords.includes(w)).length;
-      if (score > bestScore) { bestScore = score; bestMatch = issue; }
-    }
-    if (bestMatch && bestScore > 0) return [bestMatch.number];
-
-    // Last resort: pick the most recently updated in-progress issue
-    const sorted = (inProgress.length ? inProgress : issues)
-      .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
-    return [sorted[0].number];
-  } catch (e) {
-    console.error("[webhook] Auto-detect fallback error:", e.message);
-    return [];
-  }
+  return [...nums].filter((n) => n !== pr.number && n > 0);
 }
 
 export default async function handler(req, res) {
@@ -172,63 +102,45 @@ export default async function handler(req, res) {
 
   const event = req.headers["x-github-event"];
   const repo = body.repository?.full_name || process.env.GITHUB_REPO;
-  console.log(`[webhook] ${event} ${body.action} repo:${repo}`);
+  const excludedUsers = (process.env.EXCLUDED_USERS || "vamadeus").split(",").map((s) => s.trim().toLowerCase());
+
+  // === IGNORE ALL EVENTS FROM EXCLUDED USERS (client) ===
+  const actor = (body.sender?.login || "").toLowerCase();
+  if (excludedUsers.includes(actor)) {
+    return res.json({ ok: true, skipped: true, reason: `actor ${actor} is excluded` });
+  }
+
+  // Also skip if issue was created by excluded user
+  const issueCreator = (body.issue?.user?.login || body.pull_request?.user?.login || "").toLowerCase();
+  if (event === "issues" && excludedUsers.includes(issueCreator)) {
+    return res.json({ ok: true, skipped: true, reason: `issue creator ${issueCreator} is excluded` });
+  }
+
+  console.log(`[webhook] ${event} ${body.action} repo:${repo} actor:${actor}`);
 
   // ========================================
-  // ISSUES EVENTS
+  // ISSUES EVENTS (no auto-assign)
   // ========================================
   if (event === "issues") {
     const issue = body.issue;
     const issueNum = issue.number;
 
-    // --- New issue: auto-assign (skip log/history issues) ---
-    const isLog = (issue.labels || []).some((l) => l.name === "inbox-history") || (issue.title || "").startsWith("[INBOX-LOG]");
-    if (body.action === "opened" && (issue.assignees || []).length === 0 && !isLog) {
-      try {
-        const result = await assignAndAnnounce(issue);
-        if (result.ok) {
-          await postDiscord({
-            embeds: [makeEmbed({
-              title: `Auto-assigned #${issueNum} to @${result.dev}`,
-              url: issue.html_url,
-              description: `**${issue.title}**\n_${result.reason}_`,
-              color: 0x9B59B6,
-            })],
-          });
-        }
-      } catch (e) {
-        console.error(e);
-      }
-    }
-
-    // --- Assigned: move to In Progress ---
+    // Assigned: move to In Progress
     if (body.action === "assigned") {
       await setStatusLabel(repo, issueNum, "status:in-progress");
     }
 
-    // --- Closed: move to Done (clear all status labels) ---
+    // Closed: clear status labels
     if (body.action === "closed") {
       await clearStatusLabels(repo, issueNum);
-      const created = new Date(issue.created_at).getTime();
-      const closed = new Date(issue.closed_at).getTime();
-      const liveDays = Math.max(0, (closed - created) / 86400000);
-      const assignees = (issue.assignees || []).map((a) => `@${a.login}`).join(", ") || "_unassigned_";
-      await postDiscord({
-        embeds: [makeEmbed({
-          title: `Issue closed: #${issueNum}`,
-          url: issue.html_url,
-          description: `**${issue.title}**\nClosed by ${assignees} after ${liveDays.toFixed(1)} days`,
-          color: 0x16A085,
-        })],
-      });
     }
 
-    // --- Blocked label added ---
+    // Blocked label added
     if (body.action === "labeled") {
       const label = body.label?.name?.toLowerCase() || "";
       if (label === "block" || label === "blocked" || label === "blocker") {
         await postDiscord({
-          content: "**BLOCKER ALERT**",
+          content: "**BLOCKER**",
           embeds: [makeEmbed({
             title: `#${issueNum} — ${issue.title}`,
             url: issue.html_url,
@@ -247,54 +159,32 @@ export default async function handler(req, res) {
     const pr = body.pull_request;
     const referencedIssues = await parseIssueRefs(pr, repo);
 
-    // --- PR opened / ready for review: move referenced issues to In Review ---
+    // PR opened: move referenced issues to In Review
     if (body.action === "opened" || body.action === "ready_for_review") {
       for (const issueNum of referencedIssues) {
         await setStatusLabel(repo, issueNum, "status:in-review");
       }
-      await postDiscord({
-        embeds: [makeEmbed({
-          title: `PR opened: #${pr.number}`,
-          url: pr.html_url,
-          description: `**${pr.title}**\nBy @${pr.user.login}` +
-            (referencedIssues.length ? `\nLinked issues: ${referencedIssues.map((n) => `#${n}`).join(", ")} → moved to **In Review**` : ""),
-          color: 0x3498DB,
-        })],
-      });
     }
 
-    // --- PR merged: move referenced issues to Testing ---
+    // PR merged: keep in-review (dev closes issue manually → Done)
     if (body.action === "closed" && pr.merged) {
-      for (const issueNum of referencedIssues) {
-        await setStatusLabel(repo, issueNum, "status:testing");
-      }
       const created = new Date(pr.created_at).getTime();
       const merged = new Date(pr.merged_at).getTime();
       const cycleDays = Math.max(0, (merged - created) / 86400000);
       const cycleStr = cycleDays < 1 ? `${Math.round(cycleDays * 24)}h` : `${cycleDays.toFixed(1)} days`;
-      const speed = cycleDays < 1 ? "Fast" : cycleDays < 3 ? "Healthy" : cycleDays < 7 ? "Average" : "Slow";
       await postDiscord({
         embeds: [makeEmbed({
           title: `PR merged: #${pr.number}`,
           url: pr.html_url,
           description: `**${pr.title}**\nBy @${pr.user.login}` +
-            (referencedIssues.length ? `\nLinked issues: ${referencedIssues.map((n) => `#${n}`).join(", ")} → moved to **Testing**` : ""),
+            (referencedIssues.length ? `\nLinked: ${referencedIssues.map((n) => `#${n}`).join(", ")}` : ""),
           fields: [
             { name: "Cycle time", value: cycleStr, inline: true },
-            { name: "Speed", value: speed, inline: true },
             { name: "Lines", value: `+${pr.additions || 0} -${pr.deletions || 0}`, inline: true },
           ],
           color: 0x27AE60,
         })],
       });
-    }
-
-    // --- PR converted to draft: move back to In Progress ---
-    if (body.action === "converted_to_draft") {
-      const draftRefs = await parseIssueRefs(pr, repo);
-      for (const issueNum of draftRefs) {
-        await setStatusLabel(repo, issueNum, "status:in-progress");
-      }
     }
   }
 
