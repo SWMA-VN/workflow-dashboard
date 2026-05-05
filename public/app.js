@@ -1415,6 +1415,47 @@ if (new URLSearchParams(window.location.search).get("view") === "client") {
   if (h1) h1.textContent = "Project Dashboard";
 }
 
+// ===== AI CHAT =====
+document.getElementById("ai-chat-toggle")?.addEventListener("click", () => {
+  document.getElementById("ai-chat").classList.toggle("hidden");
+  document.getElementById("ai-chat-box")?.focus();
+});
+document.getElementById("ai-chat-close")?.addEventListener("click", () => {
+  document.getElementById("ai-chat").classList.add("hidden");
+});
+
+async function sendChat() {
+  const input = document.getElementById("ai-chat-box");
+  const q = input?.value?.trim();
+  if (!q) return;
+
+  const msgs = document.getElementById("ai-chat-messages");
+  msgs.innerHTML += `<div class="ai-msg ai-user">${escapeHtml(q)}</div>`;
+  msgs.innerHTML += `<div class="ai-msg ai-loading" id="ai-typing">Thinking...</div>`;
+  msgs.scrollTop = msgs.scrollHeight;
+  input.value = "";
+
+  try {
+    const r = await fetch("/api/github", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "chat", question: q }),
+    });
+    const d = await r.json();
+    document.getElementById("ai-typing")?.remove();
+    msgs.innerHTML += `<div class="ai-msg ai-bot">${escapeHtml(d.answer || d.error || "No response")}</div>`;
+  } catch (e) {
+    document.getElementById("ai-typing")?.remove();
+    msgs.innerHTML += `<div class="ai-msg ai-bot">${escapeHtml(e.message)}</div>`;
+  }
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+document.getElementById("ai-chat-send")?.addEventListener("click", sendChat);
+document.getElementById("ai-chat-box")?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") sendChat();
+});
+
 // Init — load once on page open, no auto-polling
 loadGithub();
 initFromHash();

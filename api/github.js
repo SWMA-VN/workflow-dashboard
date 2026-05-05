@@ -18,6 +18,7 @@ export default async function handler(req, res) {
     const body = req.body || {};
     if (body.action === "plan-sprint") return handleSprintPlan(req, res);
     if (body.action === "comment") return handleComment(req, res);
+    if (body.action === "chat") return handleChat(req, res);
     return handleMove(req, res);
   }
 
@@ -391,6 +392,68 @@ Reply format (JSON array, nothing else):
     }).filter((p) => p.title);
 
     res.json({ ok: true, sprint_plan: enriched, backlog_size: backlog.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+}
+
+async function handleChat(req, res) {
+  try {
+    const { question } = req.body || {};
+    if (!question) return res.status(400).json({ error: "need question" });
+
+    const { aiSummarize } = await import("../lib/ai.js");
+
+    // Gather live context
+    const m = await getMetrics({ days: 7 });
+    const openIssues = await listIssues({ state: "open" });
+    const realIssues = openIssues.filter((i) => !i.pull_request);
+    const milestones = await listMilestones();
+
+    let team = {};
+    try { team = JSON.parse(process.env.TEAM_CONFIG || "{}"); } catch {}
+    const excludedUsers = (process.env.EXCLUDED_USERS || "vamadeus").split(",").map((s) => s.trim().toLowerCase());
+    const isExcluded = (l) => l && excludedUsers.includes(l.toLowerCase());
+
+    const teamMerged = m.prs_merged.filter((p) => !isExcluded(p.user?.login));
+    const teamCommits = m.commits.filter((c) => !isExcluded(c.author?.login));
+
+    // Per-dev summary
+    const devStats = {};
+    for (const d of Object.keys(team)) {
+      const open = realIssues.filter((i) => (i.assignees || []).some((a) => a.login === d)).length;
+      const merged = teamMerged.filter((p) => p.user?.login === d).length;
+      const commits = teamCommits.filter((c) => c.author?.login === d).length;
+      devStats[d] = { open, merged, commits, max: team[d].max_open || 3, skills: (team[d].skills || []).join(",") };
+    }
+
+    const msInfo = milestones.map((ml) => {
+      const total = ml.open_issues + ml.closed_issues;
+      const pct = total > 0 ? Math.round((ml.closed_issues / total) * 100) : 0;
+      return `${ml.title}: ${pct}% (${ml.closed_issues}/${total}) due=${ml.due_on || "no date"}`;
+    }).join("\n");
+
+    const blocked = realIssues.filter((i) => (i.labels || []).some((l) => /block/i.test(l.name)));
+    const stale = realIssues.filter((i) => (Date.now() - new Date(i.updated_at).getTime()) > 3 * 86400000);
+
+    const context = `You are a PM assistant for SWMA-VN org. Answer the question using ONLY this live data. Be concise (max 4 sentences).
+
+TEAM (last 7 days):
+${Object.entries(devStats).map(([d, s]) => `${d}: ${s.open} open (max ${s.max}), ${s.merged} PRs merged, ${s.commits} commits, skills: ${s.skills}`).join("\n")}
+
+GITHUB (7d): ${teamMerged.length} PRs merged, ${teamCommits.length} commits, ${m.issues_closed.length} closed, ${realIssues.length} open, ${blocked.length} blocked, ${stale.length} stale (3d+)
+
+MILESTONES:
+${msInfo || "none"}
+
+Top merged PRs: ${teamMerged.slice(0, 8).map((p) => `${p.user?.login}: ${p.title}`).join(" | ")}
+
+Question: "${question}"
+
+Answer concisely. Use names and numbers. No filler.`;
+
+    const answer = await aiSummarize(context, { maxTokens: 500 });
+    res.json({ ok: true, answer });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
