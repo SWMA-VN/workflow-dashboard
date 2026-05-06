@@ -134,11 +134,12 @@ export default async function handler(req, res) {
     const issuesCount = memberLines.filter((l) => l.issues).length;
     const teamCommitsTotal = memberLines.reduce((s, l) => s + (l.ghCommits || 0), 0);
 
-    // Compact: one line per member
-    const focusBlock = memberLines.map((l) => {
+    // Compact: one line per member — skip quiet members entirely
+    const activeMembers = memberLines.filter((l) => l.statusTag !== "[QUIET]");
+    const focusBlock = activeMembers.map((l) => {
       const d = l.done && l.done !== "—" ? truncate(l.done.split("\n")[0], 50) : "";
       const w = l.inProgress && l.inProgress !== "—" ? truncate(l.inProgress.split("\n")[0], 50) : "";
-      const summary = [d, w].filter(Boolean).join(" → ") || "quiet";
+      const summary = [d, w].filter(Boolean).join(" → ");
       return `${l.statusTag} **${l.member}** ${summary}`;
     }).join("\n");
 

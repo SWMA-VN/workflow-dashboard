@@ -120,11 +120,12 @@ export default async function handler(req, res) {
       return { member: mb, yesterdayDone: yDone, yesterdayWip: yWip, todayPlan: tToday, todayYesterdayRecap: (tMorn[mb] || {}).yesterday || "—", status, statusTag, ghCommits: ghAct.commits };
     });
 
-    // Compact: one line per member
-    const focusBlock = memberRows.map((l) => {
+    // Compact: one line per member — skip quiet members entirely
+    const activeRows = memberRows.filter((l) => l.statusTag !== "[QUIET]");
+    const focusBlock = activeRows.map((l) => {
       const y = l.yesterdayDone && l.yesterdayDone !== "—" ? truncate(l.yesterdayDone.split("\n")[0], 45) : "";
       const t = l.todayPlan && l.todayPlan !== "—" ? truncate(l.todayPlan.split("\n")[0], 45) : "";
-      const summary = [y, t].filter(Boolean).join(" → ") || "quiet";
+      const summary = [y, t].filter(Boolean).join(" → ");
       return `${l.statusTag} **${l.member}** ${summary}`;
     }).join("\n");
 
