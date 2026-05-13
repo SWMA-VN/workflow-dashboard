@@ -1805,6 +1805,19 @@ footer {
 .inbox-history { margin-top: 28px; }
 .inbox-history h4 { font-size: 14px; font-weight: 600; color: var(--text-muted); margin-bottom: 4px; }
 
+/* Report Editor */
+.report-editor { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 200; }
+.report-editor.hidden { display: none; }
+.report-editor-content {
+  position: absolute; top: 0; right: 0; bottom: 0;
+  width: 500px; max-width: 95vw;
+  background: var(--bg-card); border-left: 1px solid var(--border);
+  padding: 20px; overflow-y: auto;
+  animation: slideInRight 0.15s ease;
+  box-shadow: -8px 0 30px rgba(0,0,0,0.15);
+}
+.editor-tabs { display: flex; gap: 4px; margin-top: 8px; }
+
 /* AI Chat */
 .ai-chat-fab {
   position: fixed;

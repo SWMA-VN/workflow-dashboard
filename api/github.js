@@ -19,6 +19,7 @@ export default async function handler(req, res) {
     if (body.action === "plan-sprint") return handleSprintPlan(req, res);
     if (body.action === "comment") return handleComment(req, res);
     if (body.action === "chat") return handleChat(req, res);
+    if (body.action === "send-discord") return handleSendDiscord(req, res);
     return handleMove(req, res);
   }
 
@@ -457,6 +458,22 @@ Answer concisely. Use names and numbers. No filler.`;
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+}
+
+async function handleSendDiscord(req, res) {
+  try {
+    const { text } = req.body || {};
+    if (!text) return res.status(400).json({ error: "need text" });
+    const { postDiscord, makeEmbed } = await import("../lib/discord.js");
+    await postDiscord({
+      embeds: [makeEmbed({
+        title: "PM Report",
+        description: text.slice(0, 2000),
+        color: 0x2563EB,
+      })],
+    });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 }
 
 async function handleComment(req, res) {

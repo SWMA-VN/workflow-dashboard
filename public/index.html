@@ -16,7 +16,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
-<link rel="stylesheet" href="style.css?v=5.2">
+<link rel="stylesheet" href="style.css?v=5.3">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='14' height='14' x='1' y='1' rx='3' fill='%232563eb'/%3E%3Ctext x='8' y='12' text-anchor='middle' fill='white' font-size='10' font-weight='bold'%3EP%3C/text%3E%3C/svg%3E">
 
 <script>
@@ -47,6 +47,7 @@
     <button id="run-morning-btn" class="btn-secondary" title="Run Morning Briefing">AM</button>
     <button id="run-eod-btn" class="btn-secondary" title="Run EOD report">EOD</button>
     <button id="run-weekly-btn" class="btn-secondary" title="Run Weekly report">Weekly</button>
+    <button id="edit-report-btn" class="btn-secondary" title="Edit & send custom report">Edit</button>
     <button id="refresh-btn" class="btn-primary" title="Refresh (R)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
       <span class="btn-label">Refresh</span>
@@ -343,6 +344,33 @@
   </div>
 </div>
 
+<!-- Report Editor -->
+<div id="report-editor" class="report-editor hidden">
+  <div class="side-panel-overlay" id="editor-overlay"></div>
+  <div class="report-editor-content">
+    <div class="side-panel-header">
+      <span style="font-size:13px;font-weight:600">Edit Report</span>
+      <button id="editor-close" class="sp-close">X</button>
+    </div>
+    <p class="hint" style="margin-bottom:8px">Edit the report before sending, or type instructions for AI to rewrite it.</p>
+    <div class="editor-tabs">
+      <button class="filter-btn active" id="editor-tab-edit" data-etab="edit">Edit text</button>
+      <button class="filter-btn" id="editor-tab-ai" data-etab="ai">Ask AI to rewrite</button>
+    </div>
+    <div id="editor-edit-panel">
+      <textarea id="editor-text" rows="14" style="width:100%;font-size:12px;font-family:'JetBrains Mono',monospace;padding:10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);color:var(--text);resize:vertical;margin-top:8px"></textarea>
+    </div>
+    <div id="editor-ai-panel" style="display:none">
+      <input type="text" id="editor-ai-input" placeholder="e.g. 'remove mention of voice rendering' or 'make it shorter'" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;margin-top:8px;background:var(--bg);color:var(--text)">
+      <button id="editor-ai-btn" class="filter-apply-btn" style="margin-top:6px">Rewrite with AI</button>
+    </div>
+    <div style="display:flex;gap:6px;margin-top:10px">
+      <button id="editor-send-discord" class="filter-apply-btn">Send to Discord</button>
+      <button id="editor-copy" class="filter-btn">Copy text</button>
+    </div>
+  </div>
+</div>
+
 <!-- AI Chat -->
 <div id="ai-chat" class="ai-chat hidden">
   <div class="ai-chat-header">
@@ -364,6 +392,6 @@
   <span>workflowview.vercel.app · v3.0</span>
 </footer>
 
-<script src="app.js?v=5.2"></script>
+<script src="app.js?v=5.3"></script>
 </body>
 </html>

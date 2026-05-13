@@ -1434,6 +1434,99 @@ reportButton("run-morning-btn", "/api/cron/morning", "AM");
 reportButton("run-eod-btn", "/api/cron/eod", "EOD");
 reportButton("run-weekly-btn", "/api/cron/weekly", "Weekly");
 
+// ===== REPORT EDITOR =====
+let _lastReportText = "";
+
+// Override report buttons to capture output for editing
+function reportButtonWithEdit(btnId, endpoint, label) {
+  document.getElementById(btnId)?.addEventListener("click", async () => {
+    const btn = document.getElementById(btnId);
+    btn.disabled = true; btn.textContent = "...";
+    try {
+      const r = await fetch(endpoint);
+      const d = await r.json();
+      btn.textContent = d.ok ? "Sent" : "Failed";
+      // Store summary for editing
+      if (d.summary_excerpt) _lastReportText = d.summary_excerpt;
+    } catch (e) { btn.textContent = "Failed"; }
+    setTimeout(() => { btn.textContent = label; btn.disabled = false; }, 3000);
+  });
+}
+// Re-bind buttons with edit-aware version
+reportButtonWithEdit("run-morning-btn", "/api/cron/morning", "AM");
+reportButtonWithEdit("run-eod-btn", "/api/cron/eod", "EOD");
+reportButtonWithEdit("run-weekly-btn", "/api/cron/weekly", "Weekly");
+
+// Edit button opens editor with last report or empty
+document.getElementById("edit-report-btn")?.addEventListener("click", () => {
+  document.getElementById("report-editor").classList.remove("hidden");
+  document.getElementById("editor-text").value = _lastReportText || "Click AM, EOD, or Weekly first to generate a report, then click Edit to modify it.\n\nOr type your own report here.";
+  document.getElementById("editor-text").focus();
+});
+document.getElementById("editor-close")?.addEventListener("click", () => document.getElementById("report-editor").classList.add("hidden"));
+document.getElementById("editor-overlay")?.addEventListener("click", () => document.getElementById("report-editor").classList.add("hidden"));
+
+// Tab switching
+document.querySelectorAll("[data-etab]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll("[data-etab]").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById("editor-edit-panel").style.display = btn.dataset.etab === "edit" ? "" : "none";
+    document.getElementById("editor-ai-panel").style.display = btn.dataset.etab === "ai" ? "" : "none";
+  });
+});
+
+// AI rewrite
+document.getElementById("editor-ai-btn")?.addEventListener("click", async () => {
+  const instruction = document.getElementById("editor-ai-input")?.value?.trim();
+  const currentText = document.getElementById("editor-text")?.value?.trim();
+  if (!instruction || !currentText) return;
+
+  const btn = document.getElementById("editor-ai-btn");
+  btn.disabled = true; btn.textContent = "Rewriting...";
+  try {
+    const r = await fetch("/api/github", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "chat", question: `Rewrite this report following this instruction: "${instruction}"\n\nOriginal report:\n${currentText}\n\nReturn ONLY the rewritten text, nothing else.` }),
+    });
+    const d = await r.json();
+    if (d.answer) {
+      document.getElementById("editor-text").value = d.answer;
+      _lastReportText = d.answer;
+    }
+  } catch (e) {}
+  btn.disabled = false; btn.textContent = "Rewrite with AI";
+});
+
+// Send edited text to Discord
+document.getElementById("editor-send-discord")?.addEventListener("click", async () => {
+  const text = document.getElementById("editor-text")?.value?.trim();
+  if (!text) return;
+  const btn = document.getElementById("editor-send-discord");
+  btn.disabled = true; btn.textContent = "Sending...";
+  try {
+    const webhook = await fetch("/api/config?type=discord-info").then(() => null).catch(() => null);
+    // Use the chat endpoint to post to Discord via a workaround
+    await fetch("/api/github", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "send-discord", text }),
+    });
+    btn.textContent = "Sent";
+    setTimeout(() => { btn.textContent = "Send to Discord"; btn.disabled = false; }, 3000);
+  } catch (e) {
+    btn.textContent = "Failed";
+    setTimeout(() => { btn.textContent = "Send to Discord"; btn.disabled = false; }, 3000);
+  }
+});
+
+// Copy text
+document.getElementById("editor-copy")?.addEventListener("click", () => {
+  const text = document.getElementById("editor-text")?.value;
+  if (text) { navigator.clipboard.writeText(text); document.getElementById("editor-copy").textContent = "Copied"; setTimeout(() => document.getElementById("editor-copy").textContent = "Copy text", 2000); }
+});
+
 // ===== AI CHAT =====
 document.getElementById("ai-chat-toggle")?.addEventListener("click", () => {
   document.getElementById("ai-chat").classList.toggle("hidden");
