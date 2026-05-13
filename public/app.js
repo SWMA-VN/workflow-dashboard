@@ -1415,6 +1415,21 @@ if (new URLSearchParams(window.location.search).get("view") === "client") {
   if (h1) h1.textContent = "Project Dashboard";
 }
 
+// ===== EOD BUTTON =====
+document.getElementById("run-eod-btn")?.addEventListener("click", async () => {
+  const btn = document.getElementById("run-eod-btn");
+  btn.disabled = true; btn.textContent = "Sending...";
+  try {
+    const r = await fetch("/api/cron/eod");
+    const d = await r.json();
+    btn.textContent = d.ok ? "Sent" : "Failed";
+    setTimeout(() => { btn.textContent = "EOD"; btn.disabled = false; }, 3000);
+  } catch (e) {
+    btn.textContent = "Failed";
+    setTimeout(() => { btn.textContent = "EOD"; btn.disabled = false; }, 3000);
+  }
+});
+
 // ===== AI CHAT =====
 document.getElementById("ai-chat-toggle")?.addEventListener("click", () => {
   document.getElementById("ai-chat").classList.toggle("hidden");
