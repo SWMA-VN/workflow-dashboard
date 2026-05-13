@@ -1415,20 +1415,24 @@ if (new URLSearchParams(window.location.search).get("view") === "client") {
   if (h1) h1.textContent = "Project Dashboard";
 }
 
-// ===== EOD BUTTON =====
-document.getElementById("run-eod-btn")?.addEventListener("click", async () => {
-  const btn = document.getElementById("run-eod-btn");
-  btn.disabled = true; btn.textContent = "Sending...";
-  try {
-    const r = await fetch("/api/cron/eod");
-    const d = await r.json();
-    btn.textContent = d.ok ? "Sent" : "Failed";
-    setTimeout(() => { btn.textContent = "EOD"; btn.disabled = false; }, 3000);
-  } catch (e) {
-    btn.textContent = "Failed";
-    setTimeout(() => { btn.textContent = "EOD"; btn.disabled = false; }, 3000);
-  }
-});
+// ===== REPORT BUTTONS =====
+function reportButton(btnId, endpoint, label) {
+  document.getElementById(btnId)?.addEventListener("click", async () => {
+    const btn = document.getElementById(btnId);
+    btn.disabled = true; btn.textContent = "...";
+    try {
+      const r = await fetch(endpoint);
+      const d = await r.json();
+      btn.textContent = d.ok ? "Sent" : "Failed";
+    } catch (e) {
+      btn.textContent = "Failed";
+    }
+    setTimeout(() => { btn.textContent = label; btn.disabled = false; }, 3000);
+  });
+}
+reportButton("run-morning-btn", "/api/cron/morning", "AM");
+reportButton("run-eod-btn", "/api/cron/eod", "EOD");
+reportButton("run-weekly-btn", "/api/cron/weekly", "Weekly");
 
 // ===== AI CHAT =====
 document.getElementById("ai-chat-toggle")?.addEventListener("click", () => {
